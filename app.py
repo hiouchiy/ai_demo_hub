@@ -139,7 +139,15 @@ class DatabaseManager:
             return [], 0
     
     def get_demo_by_id(self, demo_id: int) -> Optional[Dict]:
-        """Get demo by ID"""
+        """Get demo by ID (excluding all_info_md from user-facing operations)"""
+        query = """SELECT demo_id, title, summary, description_md, owner_emp_id, created_at, updated_at, 
+                          status, demo_url, repo_url, products, confidentiality, remarks 
+                   FROM hiroshi.ai_demo_hub.demos WHERE demo_id = ?"""
+        results = self.execute_query(query, [demo_id])
+        return results[0] if results else None
+    
+    def get_demo_by_id_internal(self, demo_id: int) -> Optional[Dict]:
+        """Get demo by ID for internal operations (includes all columns including all_info_md)"""
         query = "SELECT * FROM hiroshi.ai_demo_hub.demos WHERE demo_id = ?"
         results = self.execute_query(query, [demo_id])
         return results[0] if results else None
@@ -169,13 +177,23 @@ class DatabaseManager:
                 products_array_str = ', '.join([f"'{p}'" for p in products_list])
             else:
                 products_array_str = ""
-                
-            # Build query with array literal directly in SQL
+            
+            # Generate timestamp for both created_at and updated_at
+            current_time = datetime.now(JST)
+            
+            # Build query with array literal directly in SQL (including all_info_md and timestamps)
             query = f"""
             INSERT INTO hiroshi.ai_demo_hub.demos 
-            (title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products, confidentiality, remarks)
-            VALUES (?, ?, ?, ?, ?, ?, ?, array({products_array_str}), ?, ?)
+            (title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products, confidentiality, remarks, created_at, updated_at, all_info_md)
+            VALUES (?, ?, ?, ?, ?, ?, ?, array({products_array_str}), ?, ?, ?, ?, ?)
             """
+            
+            # Generate all_info_md with actual data (demo_id will be updated after INSERT)
+            data_with_metadata = data.copy()
+            data_with_metadata['demo_id'] = 'TBD'  # Will be updated after INSERT
+            data_with_metadata['created_at'] = current_time
+            data_with_metadata['updated_at'] = current_time
+            all_info_md = generate_all_info_md(data_with_metadata)
             
             params = [
                 data['title'],
@@ -186,10 +204,28 @@ class DatabaseManager:
                 data['demo_url'],
                 data['repo_url'],
                 data['confidentiality'],
-                data['remarks']
+                data['remarks'],
+                current_time,
+                current_time,
+                all_info_md
             ]
             
             self.execute_query(query, params)
+            
+            # Get the inserted demo ID to update all_info_md with correct demo_id
+            last_id_query = "SELECT MAX(demo_id) as last_id FROM hiroshi.ai_demo_hub.demos"
+            result = self.execute_query(last_id_query)
+            
+            if result and len(result) > 0 and result[0]['last_id'] is not None:
+                new_demo_id = result[0]['last_id']
+                
+                # Update all_info_md with correct demo_id
+                data_with_metadata['demo_id'] = new_demo_id
+                updated_all_info_md = generate_all_info_md(data_with_metadata)
+                
+                update_query = "UPDATE hiroshi.ai_demo_hub.demos SET all_info_md = ? WHERE demo_id = ?"
+                self.execute_query(update_query, [updated_all_info_md, new_demo_id])
+                
         except Exception as e:
             raise Exception(f"Failed to insert demo: {str(e)}")
         
@@ -220,18 +256,43 @@ class DatabaseManager:
     def update_demo(self, demo_id: int, data: Dict) -> bool:
         """Update existing demo"""
         try:
+            # Get existing demo data to preserve timestamps and demo_id for all_info_md
+            existing_demo = self.get_demo_by_id_internal(demo_id)
+            if existing_demo:
+                # Include demo_id and timestamps in data for all_info_md generation
+                data_with_metadata = data.copy()
+                data_with_metadata['demo_id'] = existing_demo.get('demo_id', demo_id)
+                data_with_metadata['created_at'] = existing_demo.get('created_at')
+                data_with_metadata['updated_at'] = existing_demo.get('updated_at')
+            else:
+                data_with_metadata = data.copy()
+                data_with_metadata['demo_id'] = demo_id
+            
             # Convert products list to array format for Databricks
             products_list = [p.strip() for p in data['products'] if p.strip()]
             if products_list:
                 products_array_str = ', '.join([f"'{p}'" for p in products_list])
             else:
                 products_array_str = ""
+            
+            # Generate updated all_info_md content with complete metadata
+            all_info_md = generate_all_info_md(data_with_metadata)
                 
-            # Build query with array literal directly in SQL
+            # Generate current timestamp for updated_at
+            current_time = datetime.now(JST)
+            
+            # Update metadata with current timestamp
+            data_with_metadata['updated_at'] = current_time
+            
+            # Generate updated all_info_md content with complete metadata
+            all_info_md = generate_all_info_md(data_with_metadata)
+            
+            # Build query with array literal directly in SQL (including all_info_md and updated_at)
             query = f"""
             UPDATE hiroshi.ai_demo_hub.demos 
             SET title = ?, summary = ?, description_md = ?, owner_emp_id = ?, status = ?, 
-                demo_url = ?, repo_url = ?, products = array({products_array_str}), confidentiality = ?, remarks = ?
+                demo_url = ?, repo_url = ?, products = array({products_array_str}), confidentiality = ?, remarks = ?, 
+                updated_at = ?, all_info_md = ?
             WHERE demo_id = ?
             """
             
@@ -245,6 +306,8 @@ class DatabaseManager:
                 data['repo_url'],
                 data['confidentiality'],
                 data['remarks'],
+                current_time,
+                all_info_md,
                 demo_id
             ]
             
@@ -307,11 +370,67 @@ from api_database_manager import APIBasedDatabaseManager
 db_manager = APIBasedDatabaseManager()
 rag_client = RAGClient()
 
+# Global variable to store current demo list for table click functionality
+current_demo_list = []
+
 # Utility functions
 def validate_email(email: str) -> bool:
     """Validate email format"""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
+
+def generate_all_info_md(data: Dict) -> str:
+    """Generate all_info_md content from demo data (includes ALL columns except all_info_md)"""
+    # Handle products - could be list or string
+    products = data.get('products', [])
+    if isinstance(products, list):
+        products_str = ", ".join(products) if products else "なし"
+    else:
+        products_str = str(products) if products else "なし"
+    
+    # Format timestamps if available
+    created_at_str = format_datetime(data.get('created_at')) if data.get('created_at') else "未設定"
+    updated_at_str = format_datetime(data.get('updated_at')) if data.get('updated_at') else "未更新"
+    
+    # Get actual values or show empty/default values
+    demo_id = data.get('demo_id', 'TBD')
+    title = data.get('title', '') or 'タイトル未設定'
+    summary = data.get('summary', '') or '概要未設定'
+    description_md = data.get('description_md', '') or '詳細説明未設定'
+    owner_emp_id = data.get('owner_emp_id', '') or '未設定'
+    status = data.get('status', '') or '未設定'
+    demo_url = data.get('demo_url', '') or 'なし'
+    repo_url = data.get('repo_url', '') or 'なし'
+    confidentiality = data.get('confidentiality', '') or '未設定'
+    remarks = data.get('remarks', '') or 'なし'
+    
+    md_content = f"""# {title}
+
+## 基本情報
+- **Demo ID**: {demo_id}
+- **代表投稿者**: {owner_emp_id}
+- **ステータス**: {status}
+- **機密レベル**: {confidentiality}
+- **登録日時**: {created_at_str}
+- **最終編集日時**: {updated_at_str}
+
+## 概要
+{summary}
+
+## 詳細説明
+{description_md}
+
+## リンク
+- **デモURL**: {demo_url}
+- **リポジトリURL**: {repo_url}
+
+## 利用製品
+{products_str}
+
+## 備考
+{remarks}
+"""
+    return md_content
 
 def format_datetime(dt) -> str:
     """Format datetime to JST string"""
@@ -345,8 +464,12 @@ def make_clickable_links(text: str) -> str:
     url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]*'
     return re.sub(url_pattern, r'<a href="\g<0>" target="_blank">\g<0></a>', text)
 
+# Global variables for table click optimization
+last_displayed_demo_id = None
+last_displayed_demo_html = None
+
 # Tab 1: Demo List
-def load_demo_list(page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC"):
+def load_demo_list(page: int = 1):
     """Load demo list with pagination and sorting"""
     try:
         # Validate inputs with proper type checking
@@ -355,12 +478,8 @@ def load_demo_list(page: int = 1, sort_column: str = "created_at", sort_order: s
         else:
             page = int(page)
             
-        if sort_column is None or not isinstance(sort_column, str):
-            sort_column = "created_at"
-        if sort_order is None or not isinstance(sort_order, str):
-            sort_order = "ASC"
-        
-        demos, total_count = db_manager.get_demos(page, sort_column, sort_order)
+        # Use default sorting by created_at DESC (newest first)
+        demos, total_count = db_manager.get_demos(page, "created_at", "DESC")
         
         # Format data for display
         formatted_demos = []
@@ -391,7 +510,6 @@ def load_demo_list(page: int = 1, sort_column: str = "created_at", sort_order: s
                     "title": demo.get("title") or "",
                     "summary": demo.get("summary") or "",
                     "owner_emp_id": demo.get("owner_emp_id") or "",
-                    "created_at": format_datetime(demo.get("created_at")),
                     "updated_at": format_datetime(demo.get("updated_at")),
                     "status": demo.get("status") or "",
                     "demo_url": demo.get("demo_url") or "",
@@ -404,6 +522,14 @@ def load_demo_list(page: int = 1, sort_column: str = "created_at", sort_order: s
             except Exception as format_error:
                 print(f"Error formatting demo: {format_error}")
                 continue
+        
+        # Store current demo list globally for table click functionality
+        global current_demo_list, last_displayed_demo_id, last_displayed_demo_html
+        current_demo_list = formatted_demos
+        
+        # Clear cache when new demo list is loaded
+        last_displayed_demo_id = None
+        last_displayed_demo_html = None
         
         df = pd.DataFrame(formatted_demos)
         
@@ -419,30 +545,57 @@ def load_demo_list(page: int = 1, sort_column: str = "created_at", sort_order: s
         print(f"Load demo list error: {error_msg}")
         return pd.DataFrame(), error_msg, 1
 
-def show_description_popup(demo_id):
-    """Show description popup for selected demo"""
+def show_demo_all_info_by_click(evt: gr.SelectData):
+    """Show all_info_md content when a table row is clicked"""
     try:
-        # Validate demo_id
-        if demo_id is None or demo_id == "":
-            return "Please enter a valid demo ID."
+        global current_demo_list, last_displayed_demo_id, last_displayed_demo_html
         
-        # Convert to int if necessary with better error handling
-        try:
-            if isinstance(demo_id, str) and demo_id.strip() == "":
-                return "Please enter a valid demo ID."
-            demo_id = int(float(demo_id))  # Handle both int and float inputs
-            if demo_id <= 0:
-                return "Demo ID must be a positive number."
-        except (ValueError, TypeError, OverflowError):
-            return "Invalid demo ID format. Please enter a valid number."
+        if evt is None or evt.index is None:
+            return "テーブルの行をクリックしてください。"
+        
+        # Get the clicked row index
+        row_idx = evt.index[0]
+        
+        # Check if we have the current demo list and valid row index
+        if not current_demo_list or row_idx >= len(current_demo_list):
+            return "データが見つかりません。ページを再読み込みしてください。"
+        
+        # Get demo_id from the current demo list
+        demo = current_demo_list[row_idx]
+        demo_id = demo.get("demo_id")
+        
+        if not demo_id:
+            return "Demo IDが見つかりません。"
+        
+        # Check if we already have this demo's details cached
+        if demo_id == last_displayed_demo_id and last_displayed_demo_html:
+            # Return cached result to avoid unnecessary database query
+            return last_displayed_demo_html
+        
+        # Get demo with all_info_md using internal function
+        demo_full = db_manager.get_demo_by_id_internal(demo_id)
+        
+        if demo_full and demo_full.get('all_info_md'):
+            # Convert markdown to HTML for display
+            html_content = markdown.markdown(demo_full['all_info_md'])
+            formatted_html = f'<div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; max-height: 600px; overflow-y: auto;">{html_content}</div>'
             
-        description = db_manager.get_description_by_id(demo_id)
-        if description:
-            return render_markdown(description)
+            # Cache the result
+            last_displayed_demo_id = demo_id
+            last_displayed_demo_html = formatted_html
+            
+            return formatted_html
+        elif demo_full:
+            error_msg = "このデモにはall_info_md情報がありません。（古いデータの可能性があります）"
+            # Cache the error result as well
+            last_displayed_demo_id = demo_id
+            last_displayed_demo_html = error_msg
+            return error_msg
         else:
-            return "Description not found."
+            return "指定されたDemo IDのデモが見つかりません。"
+            
     except Exception as e:
-        return f"Error loading description: {str(e)}"
+        return f"エラー: {str(e)}"
 
 # Tab 2: New Demo Registration
 def register_demo(title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
@@ -702,50 +855,36 @@ def create_interface():
             # Tab 1: Demo List
             with gr.TabItem("📋 デモ一覧"):
                 gr.Markdown("## デモ一覧")
+                gr.Markdown("**使い方**: テーブルの行をクリックすると、そのデモの詳細情報が下に表示されます。")
                 
                 with gr.Row():
                     page_input = gr.Number(label="ページ", value=1, precision=0, minimum=1)
-                    sort_column = gr.Dropdown(
-                        label="ソート列",
-                        choices=["demo_id", "title", "created_at", "updated_at", "status", "owner_emp_id"],
-                        value="created_at"
-                    )
-                    sort_order = gr.Dropdown(
-                        label="ソート順",
-                        choices=["ASC", "DESC"],
-                        value="ASC"
-                    )
                     load_btn = gr.Button("読み込み", variant="primary")
                 
                 page_info = gr.Markdown("")
                 demo_table = gr.DataFrame(
-                    headers=["demo_id", "title", "summary", "owner_emp_id", "created_at", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"],
+                    headers=["demo_id", "title", "summary", "owner_emp_id", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"],
                     interactive=False
                 )
                 
-                with gr.Row():
-                    demo_id_input = gr.Number(label="詳細を見るDemo ID", precision=0)
-                    show_desc_btn = gr.Button("詳細表示")
-                
-                description_popup = gr.HTML(label="詳細説明")
+                demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
                 
                 # Event handlers
                 load_btn.click(
                     load_demo_list,
-                    inputs=[page_input, sort_column, sort_order],
+                    inputs=[page_input],
                     outputs=[demo_table, page_info]
                 )
                 
-                show_desc_btn.click(
-                    show_description_popup,
-                    inputs=[demo_id_input],
-                    outputs=[description_popup]
+                demo_table.select(
+                    show_demo_all_info_by_click,
+                    outputs=[demo_details]
                 )
                 
                 # Load initial data
                 demo.load(
                     load_demo_list,
-                    inputs=[gr.Number(value=1, visible=False), gr.Textbox(value="created_at", visible=False), gr.Textbox(value="ASC", visible=False)],
+                    inputs=[gr.Number(value=1, visible=False)],
                     outputs=[demo_table, page_info]
                 )
             
@@ -897,11 +1036,11 @@ if __name__ == "__main__":
     # Launch with error handling
     try:
         interface.launch(
-            server_name="127.0.0.1",
-            server_port=7860,
+            # server_name="127.0.0.1",
+            # server_port=7860,
             # share=False,
-            show_error=True,
-            debug=False
+            # show_error=True,
+            # debug=False
         )
     except Exception as e:
         print(f"Launch error: {e}")
