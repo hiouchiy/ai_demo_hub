@@ -85,7 +85,7 @@ class APIBasedDatabaseManager:
     def get_demos(self, page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC") -> Tuple[List[Dict], int]:
         """Get paginated demo list with sorting"""
         try:
-            ITEMS_PER_PAGE = 20
+            ITEMS_PER_PAGE = 10
             
             # Validate inputs
             if page is None or page < 1:

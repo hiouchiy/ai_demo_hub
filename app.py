@@ -19,7 +19,7 @@ DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
 DATABRICKS_SERVER_HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME")
 DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
-ITEMS_PER_PAGE = 20
+ITEMS_PER_PAGE = 10
 JST = pytz.timezone('Asia/Tokyo')
 
 class DatabaseManager:
@@ -468,6 +468,14 @@ def make_clickable_links(text: str) -> str:
 last_displayed_demo_id = None
 last_displayed_demo_html = None
 
+def get_previous_page(current_page: int) -> int:
+    """Get previous page number"""
+    return max(1, current_page - 1)
+
+def get_next_page(current_page: int, total_pages: int) -> int:
+    """Get next page number"""
+    return min(total_pages, current_page + 1)
+
 # Tab 1: Demo List
 def load_demo_list(page: int = 1):
     """Load demo list with pagination and sorting"""
@@ -538,12 +546,12 @@ def load_demo_list(page: int = 1):
         total_pages = max(1, (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         page_info = f"Page {page} of {total_pages} (Total: {total_count} demos)"
         
-        return df, page_info, total_pages
+        return df, page_info, page, total_pages
         
     except Exception as e:
         error_msg = f"Error: {str(e)}"
         print(f"Load demo list error: {error_msg}")
-        return pd.DataFrame(), error_msg, 1
+        return pd.DataFrame(), error_msg, 1, 1
 
 def show_demo_all_info_by_click(evt: gr.SelectData):
     """Show all_info_md content when a table row is clicked"""
@@ -859,9 +867,18 @@ def create_interface():
                 
                 with gr.Row():
                     page_input = gr.Number(label="ページ", value=1, precision=0, minimum=1)
-                    load_btn = gr.Button("読み込み", variant="primary")
+                    refresh_btn = gr.Button("🔄 最新情報に更新", variant="primary")
                 
-                page_info = gr.Markdown("")
+                # Pagination controls
+                with gr.Row():
+                    prev_btn = gr.Button("« 前へ", size="sm")
+                    page_info = gr.Markdown("")
+                    next_btn = gr.Button("次へ »", size="sm")
+                
+                # Hidden states for pagination
+                current_page_state = gr.State(value=1)
+                total_pages_state = gr.State(value=1)
+                
                 demo_table = gr.DataFrame(
                     headers=["demo_id", "title", "summary", "owner_emp_id", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"],
                     interactive=False
@@ -870,10 +887,34 @@ def create_interface():
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
                 
                 # Event handlers
-                load_btn.click(
+                refresh_btn.click(
                     load_demo_list,
                     inputs=[page_input],
-                    outputs=[demo_table, page_info]
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state]
+                )
+                
+                # Previous page button
+                def go_previous_page(current_page, total_pages):
+                    new_page = get_previous_page(current_page)
+                    df, page_info, current_page, total_pages = load_demo_list(new_page)
+                    return new_page, df, page_info, current_page, total_pages
+                
+                prev_btn.click(
+                    go_previous_page,
+                    inputs=[current_page_state, total_pages_state],
+                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state]
+                )
+                
+                # Next page button
+                def go_next_page(current_page, total_pages):
+                    new_page = get_next_page(current_page, total_pages)
+                    df, page_info, current_page, total_pages = load_demo_list(new_page)
+                    return new_page, df, page_info, current_page, total_pages
+                
+                next_btn.click(
+                    go_next_page,
+                    inputs=[current_page_state, total_pages_state],
+                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state]
                 )
                 
                 demo_table.select(
@@ -885,7 +926,7 @@ def create_interface():
                 demo.load(
                     load_demo_list,
                     inputs=[gr.Number(value=1, visible=False)],
-                    outputs=[demo_table, page_info]
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state]
                 )
             
             # Tab 2: New Demo Registration
