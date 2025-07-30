@@ -9,6 +9,7 @@ import requests
 import markdown
 import pytz
 from databricks import sql
+from databricks.sdk import WorkspaceClient
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -364,11 +365,148 @@ class RAGClient:
             print(f"   RAG Error: {str(e)}")
             return f"エラーが発生しました: {str(e)}"
 
+class TitleGenerator:
+    """AI-powered title generation using Databricks Claude model"""
+    
+    def __init__(self):
+        try:
+            self.client = WorkspaceClient()
+            self.openai_client = self.client.serving_endpoints.get_open_ai_client()
+        except Exception as e:
+            print(f"Warning: Failed to initialize TitleGenerator: {str(e)}")
+            self.openai_client = None
+    
+    def generate_title(self, description: str) -> str:
+        """Generate a catchy title from demo description"""
+        if not self.openai_client:
+            return "Error: LLM client not initialized"
+        
+        if not description or description.strip() == "":
+            return ""
+        
+        system_prompt = """あなたは魅力的で簡潔なタイトルを作成する専門家です。
+以下の詳細説明を読んで、キャッチーで興味を引く日本語のタイトルを1つ生成してください。
+
+ルール:
+- 20文字以内で簡潔に
+- 技術的な内容を一般の人にも伝わりやすく
+- 興味を引く表現を使用
+- 「〜について」「〜の話」などの余計な言葉は避ける
+- タイトルのみを出力（説明文不要）"""
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="databricks-claude-3-7-sonnet",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": f"以下の詳細説明からキャッチーなタイトルを生成してください:\n\n{description}",
+                    }
+                ],
+                max_tokens=256
+            )
+            
+            generated_title = response.choices[0].message.content.strip()
+            return generated_title
+            
+        except Exception as e:
+            print(f"Title generation error: {str(e)}")
+            return f"Error: タイトル生成に失敗しました ({str(e)})"
+    
+    def generate_summary(self, description: str) -> str:
+        """Generate a concise summary from demo description"""
+        if not self.openai_client:
+            return "Error: LLM client not initialized"
+        
+        if not description or description.strip() == "":
+            return ""
+        
+        system_prompt = """あなたは技術的内容を分かりやすく要約する専門家です。
+以下の詳細説明を読んで、簡潔で分かりやすい要約を1つ生成してください。
+
+ルール:
+- 50-80文字程度で簡潔に
+- 技術的な専門用語を使いながらも理解しやすく
+- デモの核心となる価値・機能を伝える
+- 「このデモは」「これは」などの冗長な表現は避ける
+- 要約文のみを出力（説明文不要）"""
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="databricks-claude-3-7-sonnet",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": f"以下の詳細説明から簡潔な要約を生成してください:\n\n{description}",
+                    }
+                ],
+                max_tokens=256
+            )
+            
+            generated_summary = response.choices[0].message.content.strip()
+            return generated_summary
+            
+        except Exception as e:
+            print(f"Summary generation error: {str(e)}")
+            return f"Error: 要約生成に失敗しました ({str(e)})"
+    
+    def polish_description(self, rough_description: str) -> str:
+        """Polish rough description into professional, detailed content"""
+        if not self.openai_client:
+            return "Error: LLM client not initialized"
+        
+        if not rough_description or rough_description.strip() == "":
+            return ""
+        
+        system_prompt = """あなたは技術文書の編集とライティングの専門家です。
+ユーザーが入力したラフな下書きやメモ書きを、プロフェッショナルで分かりやすい詳細説明に書き直してください。
+
+ルール:
+- 元の内容の意図を正確に保持する
+- 技術的な正確性を維持しながら、より詳細で具体的に
+- プロフェッショナルで読みやすい文体に統一
+- Markdown記法は使用しないで、プレーンなテキストで記載する
+- 構造化された説明（必要に応じて見出しやリスト使用）
+- 専門用語は適切に使用しつつ、理解しやすい説明を併記
+- 曖昧な表現を具体的で明確な表現に改善"""
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="databricks-claude-3-7-sonnet",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": f"以下のラフな説明をプロフェッショナルで詳細な技術説明に書き直してください:\n\n{rough_description}",
+                    }
+                ],
+                max_tokens=1024
+            )
+            
+            polished_description = response.choices[0].message.content.strip()
+            return polished_description
+            
+        except Exception as e:
+            print(f"Description polishing error: {str(e)}")
+            return f"Error: 清書に失敗しました ({str(e)})"
+
 # Global instances
 # APIベースのDatabaseManagerを使用してsqlクライアントの問題を回避
 from api_database_manager import APIBasedDatabaseManager
 db_manager = APIBasedDatabaseManager()
 rag_client = RAGClient()
+title_generator = TitleGenerator()
 
 # Global variable to store current demo list for table click functionality
 current_demo_list = []
@@ -660,6 +798,63 @@ def show_demo_all_info_by_click(evt: gr.SelectData):
             
     except Exception as e:
         return f"エラー: {str(e)}"
+
+# AI Title Generation
+def generate_title_from_description(description: str) -> str:
+    """Generate catchy title from demo description using AI"""
+    try:
+        if not description or description.strip() == "":
+            return "詳細説明を入力してからタイトル生成ボタンを押してください。"
+        
+        generated_title = title_generator.generate_title(description)
+        
+        if generated_title.startswith("Error:"):
+            return generated_title
+        elif generated_title == "":
+            return "詳細説明を入力してからタイトル生成ボタンを押してください。"
+        else:
+            return generated_title
+            
+    except Exception as e:
+        return f"Error: タイトル生成に失敗しました ({str(e)})"
+
+# AI Summary Generation
+def generate_summary_from_description(description: str) -> str:
+    """Generate concise summary from demo description using AI"""
+    try:
+        if not description or description.strip() == "":
+            return "詳細説明を入力してから要約生成ボタンを押してください。"
+        
+        generated_summary = title_generator.generate_summary(description)
+        
+        if generated_summary.startswith("Error:"):
+            return generated_summary
+        elif generated_summary == "":
+            return "詳細説明を入力してから要約生成ボタンを押してください。"
+        else:
+            return generated_summary
+            
+    except Exception as e:
+        return f"Error: 要約生成に失敗しました ({str(e)})"
+
+# AI Description Polishing
+def polish_description_text(rough_description: str) -> str:
+    """Polish rough description text using AI"""
+    try:
+        if not rough_description or rough_description.strip() == "":
+            return "詳細説明を入力してから清書ボタンを押してください。"
+        
+        polished_description = title_generator.polish_description(rough_description)
+        
+        if polished_description.startswith("Error:"):
+            return polished_description
+        elif polished_description == "":
+            return "詳細説明を入力してから清書ボタンを押してください。"
+        else:
+            return polished_description
+            
+    except Exception as e:
+        return f"Error: 清書に失敗しました ({str(e)})"
 
 # Tab 2: New Demo Registration
 def register_demo(title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
@@ -1058,9 +1253,18 @@ def create_interface():
                 gr.Markdown("## 新規デモ登録")
                 
                 with gr.Column():
-                    reg_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル")
-                    reg_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約")
-                    reg_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能")
+                    # Title with AI generation button
+                    with gr.Row():
+                        reg_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル", scale=6)
+                        ai_title_btn = gr.Button("🤖 AIで自動生成", size="sm", min_width=120, variant="secondary")
+                    # Summary with AI generation button
+                    with gr.Row():
+                        reg_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約", scale=6)
+                        ai_summary_btn = gr.Button("🤖 AIで自動生成", size="sm", min_width=120, variant="secondary")
+                    # Description with AI polishing button
+                    with gr.Row():
+                        reg_description = gr.Textbox(label="詳細説明 (Markdownも可) *", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能", scale=6)
+                        ai_polish_btn = gr.Button("🤖 AIで自動清書", size="sm", min_width=120, variant="secondary")
                     reg_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
                     reg_status = gr.Dropdown(
                         label="ステータス *",
@@ -1079,6 +1283,30 @@ def create_interface():
                 
                 reg_btn = gr.Button("登録", variant="primary")
                 reg_result = gr.Markdown("")
+                
+                # AI Title Generation Event Handler
+                ai_title_btn.click(
+                    generate_title_from_description,
+                    inputs=[reg_description],
+                    outputs=[reg_title],
+                    show_progress=True
+                )
+                
+                # AI Summary Generation Event Handler
+                ai_summary_btn.click(
+                    generate_summary_from_description,
+                    inputs=[reg_description],
+                    outputs=[reg_summary],
+                    show_progress=True
+                )
+                
+                # AI Description Polishing Event Handler
+                ai_polish_btn.click(
+                    polish_description_text,
+                    inputs=[reg_description],
+                    outputs=[reg_description],
+                    show_progress=True
+                )
                 
                 reg_btn.click(
                     register_demo,
