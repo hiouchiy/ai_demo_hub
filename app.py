@@ -370,7 +370,22 @@ class TitleGenerator:
     
     def __init__(self):
         try:
-            self.client = WorkspaceClient()
+            # PATトークンのみを使用するように明示的に設定
+            databricks_host = os.getenv('DATABRICKS_HOST')
+            databricks_token = os.getenv('DATABRICKS_TOKEN')
+            
+            if not databricks_host or not databricks_token:
+                raise ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN environment variables are required")
+            
+            # OAuth関連の環境変数を無視してPATのみを使用
+            self.client = WorkspaceClient(
+                host=databricks_host,
+                token=databricks_token,
+                auth_type="pat",
+                # OAuth環境変数を明示的に無効化
+                client_id=None,
+                client_secret=None
+            )
             self.openai_client = self.client.serving_endpoints.get_open_ai_client()
         except Exception as e:
             print(f"Warning: Failed to initialize TitleGenerator: {str(e)}")
@@ -1263,7 +1278,7 @@ def create_interface():
                         ai_summary_btn = gr.Button("🤖 AIで自動生成", size="sm", min_width=120, variant="secondary")
                     # Description with AI polishing button
                     with gr.Row():
-                        reg_description = gr.Textbox(label="詳細説明 (Markdownも可) *", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能", scale=6)
+                        reg_description = gr.Textbox(label="詳細説明 (Markdownも可) *", lines=5, max_lines=10, placeholder="詳細説明をMarkdown形式でも記載可能", scale=6)
                         ai_polish_btn = gr.Button("🤖 AIで自動清書", size="sm", min_width=120, variant="secondary")
                     reg_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
                     reg_status = gr.Dropdown(
@@ -1279,7 +1294,7 @@ def create_interface():
                         choices=["public", "internal"],
                         value="internal"
                     )
-                    reg_remarks = gr.Textbox(label="備考", lines=3, placeholder="追加の備考があれば記載")
+                    reg_remarks = gr.Textbox(label="備考", lines=3, max_lines=8, placeholder="追加の備考があれば記載")
                 
                 reg_btn = gr.Button("登録", variant="primary")
                 reg_result = gr.Markdown("")
@@ -1328,7 +1343,7 @@ def create_interface():
                 with gr.Column():
                     upd_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル")
                     upd_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約")
-                    upd_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能")
+                    upd_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, max_lines=10, placeholder="詳細説明をMarkdown形式でも記載可能")
                     upd_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
                     upd_status = gr.Dropdown(
                         label="ステータス *",
@@ -1343,7 +1358,7 @@ def create_interface():
                         choices=["public", "internal"],
                         value="internal"
                     )
-                    upd_remarks = gr.Textbox(label="備考", lines=3, placeholder="追加の備考があれば記載")
+                    upd_remarks = gr.Textbox(label="備考", lines=3, max_lines=8, placeholder="追加の備考があれば記載")
                 
                 with gr.Row():
                     upd_btn = gr.Button("更新", variant="primary")
