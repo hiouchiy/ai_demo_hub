@@ -925,12 +925,12 @@ def chat_with_rag(message: str, history: List[Dict]):
         # Get response from RAG
         response = rag_client.chat_completion(messages)
         
-        # Convert markdown footnotes to readable format and make URLs clickable
+        # Convert markdown footnotes to readable format and render as markdown
         response_converted = convert_markdown_footnotes(response)
-        response_with_links = make_clickable_links(response_converted)
+        response_html = render_markdown(response_converted)
         
         # Replace thinking indicator with actual response
-        history[-1] = {"role": "assistant", "content": response_with_links}
+        history[-1] = {"role": "assistant", "content": response_html}
         yield "", history
         
     except Exception as e:
