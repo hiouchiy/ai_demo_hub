@@ -476,6 +476,12 @@ def get_next_page(current_page: int, total_pages: int) -> int:
     """Get next page number"""
     return min(total_pages, current_page + 1)
 
+def get_button_states(current_page: int, total_pages: int) -> tuple:
+    """Get the interactive states for previous and next buttons"""
+    prev_enabled = current_page > 1
+    next_enabled = current_page < total_pages
+    return prev_enabled, next_enabled
+
 # Tab 1: Demo List
 def load_demo_list(page: int = 1):
     """Load demo list with pagination and sorting"""
@@ -546,12 +552,15 @@ def load_demo_list(page: int = 1):
         total_pages = max(1, (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         page_info = f"Page {page} of {total_pages} (Total: {total_count} demos)"
         
-        return df, page_info, page, total_pages
+        # Calculate button states
+        prev_enabled, next_enabled = get_button_states(page, total_pages)
+        
+        return df, page_info, page, total_pages, prev_enabled, next_enabled
         
     except Exception as e:
         error_msg = f"Error: {str(e)}"
         print(f"Load demo list error: {error_msg}")
-        return pd.DataFrame(), error_msg, 1, 1
+        return pd.DataFrame(), error_msg, 1, 1, False, False
 
 def show_demo_all_info_by_click(evt: gr.SelectData):
     """Show all_info_md content when a table row is clicked"""
@@ -887,34 +896,38 @@ def create_interface():
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
                 
                 # Event handlers
+                def refresh_demo_list(page):
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page)
+                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                
                 refresh_btn.click(
-                    load_demo_list,
+                    refresh_demo_list,
                     inputs=[page_input],
-                    outputs=[demo_table, page_info, current_page_state, total_pages_state]
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 # Previous page button
                 def go_previous_page(current_page, total_pages):
                     new_page = get_previous_page(current_page)
-                    df, page_info, current_page, total_pages = load_demo_list(new_page)
-                    return new_page, df, page_info, current_page, total_pages
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page)
+                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 prev_btn.click(
                     go_previous_page,
                     inputs=[current_page_state, total_pages_state],
-                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state]
+                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 # Next page button
                 def go_next_page(current_page, total_pages):
                     new_page = get_next_page(current_page, total_pages)
-                    df, page_info, current_page, total_pages = load_demo_list(new_page)
-                    return new_page, df, page_info, current_page, total_pages
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page)
+                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 next_btn.click(
                     go_next_page,
                     inputs=[current_page_state, total_pages_state],
-                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state]
+                    outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 demo_table.select(
@@ -924,9 +937,9 @@ def create_interface():
                 
                 # Load initial data
                 demo.load(
-                    load_demo_list,
+                    refresh_demo_list,
                     inputs=[gr.Number(value=1, visible=False)],
-                    outputs=[demo_table, page_info, current_page_state, total_pages_state]
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
             
             # Tab 2: New Demo Registration
@@ -936,7 +949,7 @@ def create_interface():
                 with gr.Column():
                     reg_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル")
                     reg_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約")
-                    reg_description = gr.Textbox(label="詳細説明 (Markdown)", lines=5, placeholder="詳細説明をMarkdown形式で記載")
+                    reg_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能")
                     reg_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
                     reg_status = gr.Dropdown(
                         label="ステータス *",
@@ -976,7 +989,7 @@ def create_interface():
                 with gr.Column():
                     upd_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル")
                     upd_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約")
-                    upd_description = gr.Textbox(label="詳細説明 (Markdown)", lines=5, placeholder="詳細説明をMarkdown形式で記載")
+                    upd_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, placeholder="詳細説明をMarkdown形式でも記載可能")
                     upd_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
                     upd_status = gr.Dropdown(
                         label="ステータス *",
