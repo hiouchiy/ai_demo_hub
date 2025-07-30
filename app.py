@@ -872,14 +872,46 @@ def delete_demo(demo_id: str, progress=gr.Progress()):
         return f"Error: {str(e)}", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", f"Error: {str(e)}"
 
 # Tab 4: Semantic Search Chat
-def chat_with_rag(message: str, history: List[Dict]) -> Tuple[str, List[Dict]]:
-    """Chat with RAG system"""
+def chat_with_rag(message: str, history: List[Dict]):
+    """Chat with RAG system - progressive update with thinking indicator"""
     try:
+        # First, add user message to history and yield to show it immediately
+        history.append({"role": "user", "content": message})
+        yield "", history
+        
+        # Add animated "thinking" indicator with blinking and loading dots effect
+        thinking_msg = '''<div style="color: #666; font-size: 14px;">
+        <style>
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.4; }
+        }
+        @keyframes loading {
+            0% { content: ""; }
+            25% { content: "."; }
+            50% { content: ".."; }
+            75% { content: "..."; }
+            100% { content: ""; }
+        }
+        .thinking {
+            animation: blink 2s infinite;
+        }
+        .dots::after {
+            content: "";
+            animation: loading 1.5s infinite;
+        }
+        </style>
+        <span class="thinking">🤖 考え中</span><span class="dots"></span> 💭
+        </div>'''
+        history.append({"role": "assistant", "content": thinking_msg})
+        yield "", history
+        
         # Build messages for RAG endpoint (simplified format)
         messages = []
         
         # Add conversation history (limit to recent messages to avoid token limits)
-        recent_history = history[-6:] if len(history) > 6 else history
+        # Exclude the user message and thinking indicator we just added
+        recent_history = history[:-2][-6:] if len(history) > 8 else history[:-2]
         for msg in recent_history:
             if msg.get("role") and msg.get("content"):
                 messages.append({
@@ -897,17 +929,48 @@ def chat_with_rag(message: str, history: List[Dict]) -> Tuple[str, List[Dict]]:
         response_converted = convert_markdown_footnotes(response)
         response_with_links = make_clickable_links(response_converted)
         
-        # Update history with new message format
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": response_with_links})
-        
-        return "", history
+        # Replace thinking indicator with actual response
+        history[-1] = {"role": "assistant", "content": response_with_links}
+        yield "", history
         
     except Exception as e:
         error_msg = f"Error: {str(e)}"
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": error_msg})
-        return "", history
+        
+        # Add user message first if not already added
+        if not history or history[-1].get("role") != "user" or history[-1].get("content") != message:
+            history.append({"role": "user", "content": message})
+            yield "", history
+        
+        # Add animated "thinking" indicator with blinking and loading dots effect
+        thinking_msg = '''<div style="color: #666; font-size: 14px;">
+        <style>
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.4; }
+        }
+        @keyframes loading {
+            0% { content: ""; }
+            25% { content: "."; }
+            50% { content: ".."; }
+            75% { content: "..."; }
+            100% { content: ""; }
+        }
+        .thinking {
+            animation: blink 2s infinite;
+        }
+        .dots::after {
+            content: "";
+            animation: loading 1.5s infinite;
+        }
+        </style>
+        <span class="thinking">🤖 考え中</span><span class="dots"></span> 💭
+        </div>'''
+        history.append({"role": "assistant", "content": thinking_msg})
+        yield "", history
+        
+        # Replace thinking indicator with error message
+        history[-1] = {"role": "assistant", "content": error_msg}
+        yield "", history
 
 # Create Gradio interface
 def create_interface():
