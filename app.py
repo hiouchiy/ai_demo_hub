@@ -461,8 +461,55 @@ def render_markdown(text: str) -> str:
 
 def make_clickable_links(text: str) -> str:
     """Convert URLs in text to clickable links"""
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]*'
-    return re.sub(url_pattern, r'<a href="\g<0>" target="_blank">\g<0></a>', text)
+    # URL pattern that includes valid URL characters
+    url_pattern = r'https?://[a-zA-Z0-9._~:/?#[\]@!$&\'()*+,;=%\-]*[a-zA-Z0-9_~/#@$*+=\-]'
+    
+    def replace_url(match):
+        url = match.group(0)
+        
+        # Remove trailing punctuation and encoded Japanese punctuation
+        # Common patterns: )%E3%80%82 (encoded 。), )%E3%80%81 (encoded 、)
+        if ')%E3%80%82' in url:  # )。
+            url = url.split(')%E3%80%82')[0]
+        elif ')%E3%80%81' in url:  # )、
+            url = url.split(')%E3%80%81')[0]
+        else:
+            # Remove common trailing punctuation
+            while url and url[-1] in '。、,，!！)）]】〉》」』':
+                url = url[:-1]
+        
+        return f'<a href="{url}" target="_blank">{url}</a>'
+    
+    return re.sub(url_pattern, replace_url, text)
+
+def convert_markdown_footnotes(text: str) -> str:
+    """Convert Markdown footnote references to readable superscript numbers"""
+    import re
+    
+    # Find all footnote references
+    footnote_pattern = r'\[\^[^\]]+\]'
+    footnotes = re.findall(footnote_pattern, text)
+    
+    if not footnotes:
+        return text
+    
+    # Create mapping from footnote to superscript number
+    footnote_map = {}
+    for i, footnote in enumerate(set(footnotes), 1):
+        # Use Unicode superscript characters for numbers 1-9, then fallback
+        if i <= 9:
+            superscript_nums = ['¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹']
+            footnote_map[footnote] = superscript_nums[i-1]
+        else:
+            # For more than 9 footnotes, use parentheses format
+            footnote_map[footnote] = f'({i})'
+    
+    # Replace footnotes with superscript numbers
+    result = text
+    for footnote, replacement in footnote_map.items():
+        result = result.replace(footnote, replacement)
+    
+    return result
 
 # Global variables for table click optimization
 last_displayed_demo_id = None
@@ -846,8 +893,9 @@ def chat_with_rag(message: str, history: List[Dict]) -> Tuple[str, List[Dict]]:
         # Get response from RAG
         response = rag_client.chat_completion(messages)
         
-        # Make URLs clickable
-        response_with_links = make_clickable_links(response)
+        # Convert markdown footnotes to readable format and make URLs clickable
+        response_converted = convert_markdown_footnotes(response)
+        response_with_links = make_clickable_links(response_converted)
         
         # Update history with new message format
         history.append({"role": "user", "content": message})
