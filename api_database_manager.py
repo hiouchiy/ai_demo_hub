@@ -104,7 +104,7 @@ class APIBasedDatabaseManager:
                 total_count = 0
             
             # Get paginated data
-            valid_columns = ["demo_id", "title", "summary", "owner_emp_id", "created_at", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"]
+            valid_columns = ["demo_id", "title", "summary", "owner_emp_id", "creator_emp_id", "created_at", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"]
             if sort_column not in valid_columns:
                 sort_column = "created_at"
             
@@ -112,7 +112,7 @@ class APIBasedDatabaseManager:
                 sort_order = "ASC"
             
             data_query = f"""
-            SELECT demo_id, title, summary, owner_emp_id, created_at, updated_at, status, 
+            SELECT demo_id, title, summary, owner_emp_id, creator_emp_id, created_at, updated_at, status, 
                    demo_url, repo_url, products, confidentiality, remarks
             FROM hiroshi.ai_demo_hub.demos
             ORDER BY {sort_column} {sort_order}
@@ -165,7 +165,7 @@ class APIBasedDatabaseManager:
     def get_demo_by_id(self, demo_id: int) -> Optional[Dict]:
         """Get demo by ID (excluding all_info_md from user-facing operations)"""
         try:
-            query = f"""SELECT demo_id, title, summary, description_md, owner_emp_id, created_at, updated_at, 
+            query = f"""SELECT demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, created_at, updated_at, 
                                status, demo_url, repo_url, products, confidentiality, remarks 
                         FROM hiroshi.ai_demo_hub.demos WHERE demo_id = {demo_id}"""
             results = self.execute_query_api(query)
@@ -304,6 +304,7 @@ class APIBasedDatabaseManager:
         summary = data.get('summary', '') or '概要未設定'
         description_md = data.get('description_md', '') or '詳細説明未設定'
         owner_emp_id = data.get('owner_emp_id', '') or '未設定'
+        creator_emp_id = data.get('creator_emp_id', '') or '不明'
         status = data.get('status', '') or '未設定'
         demo_url = data.get('demo_url', '') or 'なし'
         repo_url = data.get('repo_url', '') or 'なし'
@@ -315,6 +316,7 @@ class APIBasedDatabaseManager:
 ## 基本情報
 - **Demo ID**: {demo_id}
 - **代表投稿者**: {owner_emp_id}
+- **デモ作成者**: {creator_emp_id}
 - **ステータス**: {status}
 - **機密レベル**: {confidentiality}
 - **登録日時**: {created_at_str}
@@ -363,12 +365,14 @@ class APIBasedDatabaseManager:
             all_info_md = self.generate_all_info_md(data_with_metadata)
                 
             # Build query with escaped values (including timestamps and all_info_md)
+            creator_emp_id_value = self.escape_sql_string(data.get('creator_emp_id', '')) if data.get('creator_emp_id') else 'NULL'
+            
             query = f"""
             INSERT INTO hiroshi.ai_demo_hub.demos 
-            (title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products, confidentiality, remarks, created_at, updated_at, all_info_md)
+            (title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products, confidentiality, remarks, created_at, updated_at, all_info_md)
             VALUES ({self.escape_sql_string(data['title'])}, {self.escape_sql_string(data['summary'])}, 
                     {self.escape_sql_string(data['description_md'])}, {self.escape_sql_string(data['owner_emp_id'])}, 
-                    {self.escape_sql_string(data['status'])}, {self.escape_sql_string(data['demo_url'])}, 
+                    {creator_emp_id_value}, {self.escape_sql_string(data['status'])}, {self.escape_sql_string(data['demo_url'])}, 
                     {self.escape_sql_string(data['repo_url'])}, array({products_array_str}), 
                     {self.escape_sql_string(data['confidentiality'])}, {self.escape_sql_string(data['remarks'])},
                     '{current_time_str}', '{current_time_str}', {self.escape_sql_string(all_info_md)})
@@ -438,12 +442,15 @@ class APIBasedDatabaseManager:
             all_info_md = self.generate_all_info_md(data_with_metadata)
                 
             # Build query with escaped values (including updated_at and all_info_md)
+            # Note: owner_emp_id is excluded from update as it should not be editable
+            creator_emp_id_value = self.escape_sql_string(data.get('creator_emp_id', '')) if data.get('creator_emp_id') else 'NULL'
+            
             query = f"""
             UPDATE hiroshi.ai_demo_hub.demos 
             SET title = {self.escape_sql_string(data['title'])}, 
                 summary = {self.escape_sql_string(data['summary'])}, 
                 description_md = {self.escape_sql_string(data['description_md'])}, 
-                owner_emp_id = {self.escape_sql_string(data['owner_emp_id'])}, 
+                creator_emp_id = {creator_emp_id_value}, 
                 status = {self.escape_sql_string(data['status'])}, 
                 demo_url = {self.escape_sql_string(data['demo_url'])}, 
                 repo_url = {self.escape_sql_string(data['repo_url'])}, 

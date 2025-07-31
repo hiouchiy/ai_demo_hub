@@ -23,6 +23,25 @@ RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
 ITEMS_PER_PAGE = 10
 JST = pytz.timezone('Asia/Tokyo')
 
+def get_current_user_email(request: gr.Request) -> str:
+    """Get current user's email from request headers"""
+    try:
+        # Try different header names for email
+        email = request.headers.get("x-forwarded-email")
+        if not email:
+            email = request.headers.get("x-forwarded-user")
+        if not email:
+            email = request.headers.get("x-forwarded-preferred-username")
+        
+        # If no email found, use default for local testing
+        if not email:
+            email = "unknown@databricks.com"
+            
+        return email
+    except Exception as e:
+        print(f"Warning: Failed to get user email: {str(e)}")
+        return "unknown@databricks.com"
+
 class DatabaseManager:
     """Database connection and operations manager"""
     
@@ -720,17 +739,18 @@ def load_demo_list(page: int = 1):
                 products_str = ", ".join(products) if products else ""
                 
                 formatted_demo = {
-                    "demo_id": demo_id,
-                    "title": demo.get("title") or "",
-                    "summary": demo.get("summary") or "",
-                    "owner_emp_id": demo.get("owner_emp_id") or "",
-                    "updated_at": format_datetime(demo.get("updated_at")),
-                    "status": demo.get("status") or "",
-                    "demo_url": demo.get("demo_url") or "",
-                    "repo_url": demo.get("repo_url") or "",
-                    "products": products_str,
-                    "confidentiality": demo.get("confidentiality") or "",
-                    "remarks": demo.get("remarks") or ""
+                    "デモID": demo_id,
+                    "タイトル": demo.get("title") or "",
+                    "要約": demo.get("summary") or "",
+                    "代表投稿者": demo.get("owner_emp_id") or "",
+                    "デモ作成者": demo.get("creator_emp_id") or "",
+                    "更新日時": format_datetime(demo.get("updated_at")),
+                    "ステータス": demo.get("status") or "",
+                    "デモURL": demo.get("demo_url") or "",
+                    "リポジトリURL": demo.get("repo_url") or "",
+                    "利用製品": products_str,
+                    "機密性": demo.get("confidentiality") or "",
+                    "備考": demo.get("remarks") or ""
                 }
                 formatted_demos.append(formatted_demo)
             except Exception as format_error:
@@ -745,7 +765,9 @@ def load_demo_list(page: int = 1):
         last_displayed_demo_id = None
         last_displayed_demo_html = None
         
-        df = pd.DataFrame(formatted_demos)
+        # Define column order with creator_emp_id before owner_emp_id
+        column_order = ["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"]
+        df = pd.DataFrame(formatted_demos)[column_order]
         
         # Calculate pagination info - ensure proper type conversion
         total_count = int(total_count) if total_count is not None else 0
@@ -779,7 +801,7 @@ def show_demo_all_info_by_click(evt: gr.SelectData):
         
         # Get demo_id from the current demo list
         demo = current_demo_list[row_idx]
-        demo_id = demo.get("demo_id")
+        demo_id = demo.get("デモID")
         
         if not demo_id:
             return "Demo IDが見つかりません。"
@@ -872,17 +894,21 @@ def polish_description_text(rough_description: str) -> str:
         return f"Error: 清書に失敗しました ({str(e)})"
 
 # Tab 2: New Demo Registration
-def register_demo(title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
+def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
     """Register new demo with progress display"""
     try:
         progress(0.1, desc="Validating input...")
         
         # Validation
         if not title or not owner_emp_id or not status or not demo_url:
-            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
+            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
         
         if not validate_email(owner_emp_id):
-            return "Error: Invalid email format for owner_emp_id.", title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
+            return "Error: Invalid email format for owner_emp_id.", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
+        
+        # Validate creator_emp_id if provided
+        if creator_emp_id and not validate_email(creator_emp_id):
+            return "Error: Invalid email format for creator_emp_id.", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
         
         progress(0.3, desc="Processing products...")
         
@@ -896,6 +922,7 @@ def register_demo(title, summary, description_md, owner_emp_id, status, demo_url
             "summary": summary or "",
             "description_md": description_md or "",
             "owner_emp_id": owner_emp_id or "",
+            "creator_emp_id": creator_emp_id or "",
             "status": status or "draft",
             "demo_url": demo_url or "",
             "repo_url": repo_url or "",
@@ -913,33 +940,33 @@ def register_demo(title, summary, description_md, owner_emp_id, status, demo_url
         # Handle the case where demo_id might be None or 0
         if demo_id and demo_id > 0:
             # Clear all fields after successful registration
-            return f"Success: Demo registered with ID {demo_id}", "", "", "", "", "draft", "", "", "", "internal", ""
+            return f"Success: Demo registered with ID {demo_id}", "", "", "", "", "", "draft", "", "", "", "internal", ""
         else:
             # Clear all fields after successful registration
-            return "Success: Demo registered successfully", "", "", "", "", "draft", "", "", "", "internal", ""
+            return "Success: Demo registered successfully", "", "", "", "", "", "draft", "", "", "", "internal", ""
         
     except Exception as e:
-        return f"Error: {str(e)}", title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
+        return f"Error: {str(e)}", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
 
 # Tab 3: Demo Update
 def search_demo_for_update(demo_id: str):
     """Search demo by ID for update"""
     try:
         if not demo_id or demo_id.strip() == "":
-            return "", "", "", "", "", "", "", "", "", "", "Please enter a demo ID."
+            return "", "", "", "", "", "", "", "", "", "", "", "Please enter a demo ID."
         
         # Convert to int with better error handling
         try:
             demo_id_int = int(float(demo_id.strip()))
             if demo_id_int <= 0:
-                return "", "", "", "", "", "", "", "", "", "", "Demo ID must be a positive number."
+                return "", "", "", "", "", "", "", "", "", "", "", "Demo ID must be a positive number."
         except (ValueError, TypeError, OverflowError):
-            return "", "", "", "", "", "", "", "", "", "", "Invalid demo ID format. Please enter a valid number."
+            return "", "", "", "", "", "", "", "", "", "", "", "Invalid demo ID format. Please enter a valid number."
         
         demo = db_manager.get_demo_by_id(demo_id_int)
         
         if not demo:
-            return "", "", "", "", "", "", "", "", "", "", "Demo not found."
+            return "", "", "", "", "", "", "", "", "", "", "", "Demo not found."
         
         # Handle products array properly
         products_str = ""
@@ -971,6 +998,7 @@ def search_demo_for_update(demo_id: str):
             demo["summary"] or "",
             demo["description_md"] or "",
             demo["owner_emp_id"],
+            demo.get("creator_emp_id", "") or "",
             demo["status"],
             demo["demo_url"],
             demo["repo_url"] or "",
@@ -981,24 +1009,28 @@ def search_demo_for_update(demo_id: str):
         )
         
     except ValueError:
-        return "", "", "", "", "", "", "", "", "", "", "Invalid demo ID format."
+        return "", "", "", "", "", "", "", "", "", "", "", "Invalid demo ID format."
     except Exception as e:
-        return "", "", "", "", "", "", "", "", "", "", f"Error: {str(e)}"
+        return "", "", "", "", "", "", "", "", "", "", "", f"Error: {str(e)}"
 
-def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
+def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
     """Update existing demo with progress display"""
     try:
         progress(0.1, desc="Validating input...")
         
         if not demo_id or demo_id.strip() == "":
-            return "Error: Please search for a demo first.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Please search for a demo first."
+            return "Error: Please search for a demo first.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Please search for a demo first."
         
         # Validation
         if not title or not owner_emp_id or not status or not demo_url:
-            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Required fields cannot be empty."
+            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Required fields cannot be empty."
         
         if not validate_email(owner_emp_id):
-            return "Error: Invalid email format for owner_emp_id.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
+            return "Error: Invalid email format for owner_emp_id.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
+        
+        # Validate creator_emp_id if provided
+        if creator_emp_id and not validate_email(creator_emp_id):
+            return "Error: Invalid email format for creator_emp_id.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
         
         progress(0.3, desc="Processing demo ID...")
         
@@ -1006,9 +1038,9 @@ def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, stat
         try:
             demo_id_int = int(float(demo_id.strip()))
             if demo_id_int <= 0:
-                return "Error: Demo ID must be a positive number.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID."
+                return "Error: Demo ID must be a positive number.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID."
         except (ValueError, TypeError, OverflowError):
-            return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
+            return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
         
         progress(0.5, desc="Preparing data...")
         
@@ -1019,6 +1051,7 @@ def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, stat
             "summary": summary,
             "description_md": description_md,
             "owner_emp_id": owner_emp_id,
+            "creator_emp_id": creator_emp_id,
             "status": status,
             "demo_url": demo_url,
             "repo_url": repo_url,
@@ -1034,12 +1067,12 @@ def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, stat
         progress(1.0, desc="Update completed!")
         
         # Clear all fields on successful update
-        return "Success: Demo updated successfully.", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
+        return "Success: Demo updated successfully.", "", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
         
     except ValueError:
-        return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
+        return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
     except Exception as e:
-        return f"Error: {str(e)}", demo_id, title, summary, description_md, owner_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
+        return f"Error: {str(e)}", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
 
 def delete_demo(demo_id: str, progress=gr.Progress()):
     """Delete demo by ID with progress display"""
@@ -1047,7 +1080,7 @@ def delete_demo(demo_id: str, progress=gr.Progress()):
         progress(0.1, desc="Validating input...")
         
         if not demo_id or demo_id.strip() == "":
-            return "Error: Please search for a demo first.", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", "Please search for a demo first."
+            return "Error: Please search for a demo first.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Please search for a demo first."
         
         progress(0.3, desc="Processing demo ID...")
         
@@ -1055,16 +1088,16 @@ def delete_demo(demo_id: str, progress=gr.Progress()):
         try:
             demo_id_int = int(float(demo_id.strip()))
             if demo_id_int <= 0:
-                return "Error: Demo ID must be a positive number.", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID."
+                return "Error: Demo ID must be a positive number.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID."
         except (ValueError, TypeError, OverflowError):
-            return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
+            return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
         
         progress(0.5, desc="Checking demo existence...")
         
         # Check if demo exists before deletion
         demo = db_manager.get_demo_by_id(demo_id_int)
         if not demo:
-            return "Error: Demo not found.", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", "Demo not found."
+            return "Error: Demo not found.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Demo not found."
         
         progress(0.8, desc="Deleting demo...")
         
@@ -1074,12 +1107,12 @@ def delete_demo(demo_id: str, progress=gr.Progress()):
         progress(1.0, desc="Deletion completed!")
         
         # Clear all fields on successful deletion
-        return f"Success: Demo ID {demo_id_int} has been deleted successfully.", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
+        return f"Success: Demo ID {demo_id_int} has been deleted successfully.", "", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
         
     except ValueError:
-        return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
+        return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
     except Exception as e:
-        return f"Error: {str(e)}", demo_id, "", "", "", "", "draft", "", "", "", "internal", "", f"Error: {str(e)}"
+        return f"Error: {str(e)}", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", f"Error: {str(e)}"
 
 # Tab 4: Semantic Search Chat
 def chat_with_rag(message: str, history: List[Dict]):
@@ -1213,7 +1246,7 @@ def create_interface():
                 total_pages_state = gr.State(value=1)
                 
                 demo_table = gr.DataFrame(
-                    headers=["demo_id", "title", "summary", "owner_emp_id", "updated_at", "status", "demo_url", "repo_url", "products", "confidentiality", "remarks"],
+                    headers=["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"],
                     interactive=False
                 )
                 
@@ -1283,7 +1316,8 @@ def create_interface():
                     with gr.Row():
                         reg_description = gr.Textbox(label="詳細説明 (Markdownも可) *", lines=5, max_lines=10, placeholder="詳細説明をMarkdown形式でも記載可能", scale=6)
                         ai_polish_btn = gr.Button("🤖 AIで自動清書", size="sm", min_width=120, variant="secondary")
-                    reg_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
+                    reg_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com", interactive=False)
+                    reg_creator = gr.Textbox(label="デモ作成者メールアドレス", placeholder="デモを作成した人のメールアドレス（不明の場合は空白でOK）")
                     reg_status = gr.Dropdown(
                         label="ステータス *",
                         choices=["draft", "in_review", "published", "archived"],
@@ -1328,8 +1362,8 @@ def create_interface():
                 
                 reg_btn.click(
                     register_demo,
-                    inputs=[reg_title, reg_summary, reg_description, reg_owner, reg_status, reg_demo_url, reg_repo_url, reg_products, reg_confidentiality, reg_remarks],
-                    outputs=[reg_result, reg_title, reg_summary, reg_description, reg_owner, reg_status, reg_demo_url, reg_repo_url, reg_products, reg_confidentiality, reg_remarks],
+                    inputs=[reg_title, reg_summary, reg_description, reg_owner, reg_creator, reg_status, reg_demo_url, reg_repo_url, reg_products, reg_confidentiality, reg_remarks],
+                    outputs=[reg_result, reg_title, reg_summary, reg_description, reg_owner, reg_creator, reg_status, reg_demo_url, reg_repo_url, reg_products, reg_confidentiality, reg_remarks],
                     show_progress=True
                 )
             
@@ -1347,7 +1381,8 @@ def create_interface():
                     upd_title = gr.Textbox(label="タイトル *", placeholder="デモのタイトル")
                     upd_summary = gr.Textbox(label="要約", placeholder="カード表示用の要約")
                     upd_description = gr.Textbox(label="詳細説明 (Markdownも可)", lines=5, max_lines=10, placeholder="詳細説明をMarkdown形式でも記載可能")
-                    upd_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com")
+                    upd_owner = gr.Textbox(label="代表投稿者メールアドレス *", placeholder="john.smith@databricks.com", interactive=False)
+                    upd_creator = gr.Textbox(label="デモ作成者メールアドレス", placeholder="デモを作成した人のメールアドレス（不明の場合は空白でOK）")
                     upd_status = gr.Dropdown(
                         label="ステータス *",
                         choices=["draft", "in_review", "published", "archived"],
@@ -1372,20 +1407,20 @@ def create_interface():
                 search_btn.click(
                     search_demo_for_update,
                     inputs=[upd_demo_id],
-                    outputs=[upd_title, upd_summary, upd_description, upd_owner, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result]
+                    outputs=[upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result]
                 )
                 
                 upd_btn.click(
                     update_demo,
-                    inputs=[upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks],
-                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
+                    inputs=[upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks],
+                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
                     show_progress=True
                 )
                 
                 del_btn.click(
                     delete_demo,
                     inputs=[upd_demo_id],
-                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
+                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
                     show_progress=True
                 )
             
@@ -1403,7 +1438,7 @@ def create_interface():
                 
                 with gr.Row():
                     msg = gr.Textbox(
-                        label="メッセージ",
+                        label="メッセージ（入力後にShift+Enterで送信）",
                         placeholder="例: 機械学習に関するデモはありますか？",
                         lines=2,
                         scale=4
@@ -1428,6 +1463,16 @@ def create_interface():
                     lambda: ([], ""),
                     outputs=[chatbot, msg]
                 )
+    
+        # Auto-set user email for owner_emp_id field on demo load
+        def set_owner_email(request: gr.Request):
+            user_email = get_current_user_email(request)
+            return user_email
+        
+        demo.load(
+            set_owner_email,
+            outputs=[reg_owner]
+        )
     
     return demo
 
