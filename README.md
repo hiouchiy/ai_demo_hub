@@ -327,36 +327,6 @@ databricks apps stop japan-ai-demo-hub
 databricks apps delete japan-ai-demo-hub
 ```
 
-### ローカル開発環境（Docker）
-
-開発時のオプションとしてDockerも利用可能：
-
-```dockerfile
-FROM python:3.10-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-CMD ["python", "run_app.py"]
-```
-
-## 🧪 テスト
-
-テスト用スクリプトが `test/` フォルダに用意されています：
-
-```bash
-# データベース接続テスト
-python test/debug_db.py
-
-# 基本機能テスト
-python test/test_app.py
-
-# クエリテスト
-python test/query_test.py
-```
-
 ## 🤝 開発への貢献
 
 1. このリポジトリをフォーク
@@ -364,13 +334,6 @@ python test/query_test.py
 3. 変更をコミット (`git commit -m 'Add amazing feature'`)
 4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
 5. Pull Requestを作成
-
-## 📋 課題・制限事項
-
-- RAGシステムのエンドポイントが必要
-- Databricks環境への依存
-- 大量データでのパフォーマンス最適化が必要
-- モバイル対応の改善が必要
 
 ## 🆕 更新履歴
 
