@@ -1196,8 +1196,11 @@ def create_interface():
                 gr.Markdown("**使い方**: テーブルの行をクリックすると、そのデモの詳細情報が下に表示されます。")
                 
                 with gr.Row():
-                    page_input = gr.Number(label="ページ", value=1, precision=0, minimum=1)
-                    refresh_btn = gr.Button("🔄 最新情報に更新", variant="primary")
+                    gr.HTML("")  # Left spacer to push content to the right
+                    with gr.Column(scale=1, min_width=200):
+                        with gr.Row():
+                            page_input = gr.Number(label="ページ", value=1, precision=0, minimum=1, container=False, scale=1)
+                            refresh_btn = gr.Button("🔄 最新情報に更新", variant="primary", scale=1)
                 
                 # Pagination controls
                 with gr.Row():
