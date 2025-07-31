@@ -1220,7 +1220,7 @@ def create_interface():
     """Create the main Gradio interface"""
     
     with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# 🚀 AI Demo Hub - 社内AIデモ共有サイト")
+        gr.Markdown("# 🚀 AI Demo Hub - 社内AIデモ共有サイト [📚 操作方法](https://github.com/hiouchiy/ai_demo_hub/blob/main/USER_GUIDE.md)")
         
         with gr.Tabs():
             # Tab 1: Demo List
