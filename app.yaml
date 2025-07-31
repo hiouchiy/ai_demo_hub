@@ -1,0 +1,12 @@
+command: ["python", "app.py"]
+env:
+  - name: 'DATABRICKS_TOKEN'
+    value: 'YOUR_DATABRICKS_TOKEN'
+  - name: 'RAG_ENDPOINT'
+    value: 'YOUR_RAG_ENDPOINT'
+  - name: 'DATABRICKS_WAREHOUSE_ID'
+    value: 'YOUR_DATABRICKS_WAREHOUSE_ID'
+  - name: 'DATABRICKS_SERVER_HOSTNAME'
+    value: 'YOUR_DATABRICKS_SERVER_HOSTNAME' 
+  - name: 'DATABRICKS_HOST'
+    value: 'YOUR_DATABRICKS_HOST' 
