@@ -42,6 +42,86 @@ def get_current_user_email(request: gr.Request) -> str:
         print(f"Warning: Failed to get user email: {str(e)}")
         return "unknown@databricks.com"
 
+def get_greeting_message(request: gr.Request) -> str:
+    """Generate greeting message based on current time and user"""
+    from datetime import datetime
+    
+    try:
+        # Get user email
+        email = get_current_user_email(request)
+        
+        # Extract name from email (e.g., "john.smith@databricks.com" -> "John Smith")
+        username = email.split('@')[0]
+        if '.' in username:
+            first_name, last_name = username.split('.', 1)
+            display_name = f"{first_name.title()} {last_name.title()}"
+        else:
+            display_name = username.title()
+        
+        # Get current time in JST
+        current_time = datetime.now(JST)
+        hour = current_time.hour
+        
+        # Determine greeting based on time
+        if 5 <= hour < 12:
+            greeting = "おはようございます"
+            emoji = "🌅"
+        elif 12 <= hour < 18:
+            greeting = "こんにちは"
+            emoji = "☀️"
+        elif 18 <= hour < 22:
+            greeting = "こんばんは"
+            emoji = "🌆"
+        else:
+            greeting = "お疲れ様です"
+            emoji = "🌙"
+        
+        return f"{emoji} {greeting}、{display_name}さん！"
+        
+    except Exception as e:
+        print(f"Warning: Failed to generate greeting: {str(e)}")
+        return "👋 こんにちは！"
+
+def check_ownership_permission(demo_id, current_user_email: str) -> Tuple[bool, str, str]:
+    """Check if current user has permission to modify/delete the demo
+    
+    Returns:
+        tuple: (has_permission, original_owner_email, message)
+    """
+    try:
+        # Convert number to string if needed
+        if demo_id is None or demo_id == "":
+            return False, "", "Demo IDが入力されていません。"
+        
+        demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
+        
+        if not demo_id_str:
+            return False, "", "Demo IDが入力されていません。"
+        
+        # Convert to int with error handling
+        try:
+            demo_id_int = int(float(demo_id_str))
+            if demo_id_int <= 0:
+                return False, "", "無効なDemo IDです。"
+        except (ValueError, TypeError, OverflowError):
+            return False, "", "Demo IDの形式が正しくありません。"
+        
+        # Get demo data from database
+        demo = db_manager.get_demo_by_id(demo_id_int)
+        if not demo:
+            return False, "", "指定されたデモが見つかりません。"
+        
+        original_owner = demo.get("owner_emp_id", "")
+        
+        # Check if current user is the original owner
+        if current_user_email == original_owner:
+            return True, original_owner, "権限があります。"
+        else:
+            return False, original_owner, f"権限がありません。このデモの投稿者は {original_owner} です。"
+            
+    except Exception as e:
+        return False, "", f"権限チェック中にエラーが発生しました: {str(e)}"
+
 class DatabaseManager:
     """Database connection and operations manager"""
     
@@ -949,19 +1029,25 @@ def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, 
         return f"Error: {str(e)}", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
 
 # Tab 3: Demo Update
-def search_demo_for_update(demo_id: str):
+def search_demo_for_update(demo_id):
     """Search demo by ID for update"""
     try:
-        if not demo_id or demo_id.strip() == "":
-            return "", "", "", "", "", "", "", "", "", "", "", "Please enter a demo ID."
+        # Convert number to string if needed
+        if demo_id is None or demo_id == "":
+            return "", "", "", "", "", "", "", "", "", "", "", "デモIDを入力してください。"
+        
+        demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
+        
+        if not demo_id_str:
+            return "", "", "", "", "", "", "", "", "", "", "", "デモIDを入力してください。"
         
         # Convert to int with better error handling
         try:
-            demo_id_int = int(float(demo_id.strip()))
+            demo_id_int = int(float(demo_id_str))
             if demo_id_int <= 0:
-                return "", "", "", "", "", "", "", "", "", "", "", "Demo ID must be a positive number."
+                return "", "", "", "", "", "", "", "", "", "", "", "デモIDは正の数値である必要があります。"
         except (ValueError, TypeError, OverflowError):
-            return "", "", "", "", "", "", "", "", "", "", "", "Invalid demo ID format. Please enter a valid number."
+            return "", "", "", "", "", "", "", "", "", "", "", "無効なデモID形式です。正の数値を入力してください。"
         
         demo = db_manager.get_demo_by_id(demo_id_int)
         
@@ -1013,13 +1099,64 @@ def search_demo_for_update(demo_id: str):
     except Exception as e:
         return "", "", "", "", "", "", "", "", "", "", "", f"Error: {str(e)}"
 
-def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
+def check_update_permission_or_execute(demo_id: str, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, request: gr.Request):
+    """Check permission before update or show confirmation"""
+    current_user_email = get_current_user_email(request)
+    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email)
+    
+    if has_permission:
+        # Direct execution - user owns the demo
+        return update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
+    else:
+        # Show confirmation area
+        confirmation_msg = f"""
+### ⚠️ 権限確認
+
+あなた（**{current_user_email}**）は、このデモの投稿者（**{original_owner}**）ではありません。
+
+それでも更新を実行しますか？
+
+**注意**: 他の人が投稿したデモを変更することは、通常推奨されません。
+        """
+        # Return current state + show confirmation area
+        return ("", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "", gr.update(visible=True), confirmation_msg, gr.update(value="確認して更新実行", visible=True), gr.update(visible=False))
+
+def check_delete_permission_or_execute(demo_id: str, request: gr.Request):
+    """Check permission before delete or show confirmation"""
+    current_user_email = get_current_user_email(request)
+    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email)
+    
+    if has_permission:
+        # Direct execution - user owns the demo
+        return delete_demo(demo_id) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
+    else:
+        # Show confirmation area
+        confirmation_msg = f"""
+### ⚠️ 削除権限確認
+
+あなた（**{current_user_email}**）は、このデモの投稿者（**{original_owner}**）ではありません。
+
+それでも削除を実行しますか？
+
+**⚠️ 重要**: 他の人が投稿したデモを削除することは非常に慎重に行ってください。
+削除したデータは復元できません。
+        """
+        # Return current state + show confirmation area
+        return ("", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "", gr.update(visible=True), confirmation_msg, gr.update(visible=False), gr.update(value="確認して削除実行", visible=True))
+
+def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
     """Update existing demo with progress display"""
     try:
         progress(0.1, desc="Validating input...")
         
-        if not demo_id or demo_id.strip() == "":
-            return "Error: Please search for a demo first.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Please search for a demo first."
+        # Convert number to string if needed
+        if demo_id is None or demo_id == "":
+            return "Error: デモを検索してください。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
+        
+        demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
+        
+        if not demo_id_str:
+            return "Error: デモを検索してください。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
         
         # Validation
         if not title or not owner_emp_id or not status or not demo_url:
@@ -1036,11 +1173,11 @@ def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, crea
         
         # Convert to int with better error handling
         try:
-            demo_id_int = int(float(demo_id.strip()))
+            demo_id_int = int(float(demo_id_str))
             if demo_id_int <= 0:
-                return "Error: Demo ID must be a positive number.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID."
+                return "Error: デモIDは正の数値である必要があります。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモIDです。"
         except (ValueError, TypeError, OverflowError):
-            return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
+            return "Error: 無効なデモID形式です。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモID形式です。"
         
         progress(0.5, desc="Preparing data...")
         
@@ -1074,23 +1211,29 @@ def update_demo(demo_id: str, title, summary, description_md, owner_emp_id, crea
     except Exception as e:
         return f"Error: {str(e)}", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
 
-def delete_demo(demo_id: str, progress=gr.Progress()):
+def delete_demo(demo_id, progress=gr.Progress()):
     """Delete demo by ID with progress display"""
     try:
         progress(0.1, desc="Validating input...")
         
-        if not demo_id or demo_id.strip() == "":
-            return "Error: Please search for a demo first.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Please search for a demo first."
+        # Convert number to string if needed
+        if demo_id is None or demo_id == "":
+            return "Error: デモを検索してください。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
+        
+        demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
+        
+        if not demo_id_str:
+            return "Error: デモを検索してください。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
         
         progress(0.3, desc="Processing demo ID...")
         
         # Convert to int with better error handling
         try:
-            demo_id_int = int(float(demo_id.strip()))
+            demo_id_int = int(float(demo_id_str))
             if demo_id_int <= 0:
-                return "Error: Demo ID must be a positive number.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID."
+                return "Error: デモIDは正の数値である必要があります。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモIDです。"
         except (ValueError, TypeError, OverflowError):
-            return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
+            return "Error: 無効なデモID形式です。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモID形式です。"
         
         progress(0.5, desc="Checking demo existence...")
         
@@ -1221,6 +1364,9 @@ def create_interface():
     
     with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft()) as demo:
         gr.Markdown("# 🚀 AI Demo Hub - 社内AIデモ共有サイト [📚 操作方法](https://github.com/hiouchiy/ai_demo_hub/blob/main/USER_GUIDE.md)")
+        
+        # User greeting area
+        greeting_display = gr.Markdown("", elem_id="greeting")
         
         with gr.Tabs():
             # Tab 1: Demo List
@@ -1372,7 +1518,7 @@ def create_interface():
                 gr.Markdown("## デモ情報更新")
                 
                 with gr.Row():
-                    upd_demo_id = gr.Textbox(label="Demo ID", placeholder="更新するデモのID")
+                    upd_demo_id = gr.Number(label="Demo ID", placeholder="更新するデモのID（半角数値のみ）", precision=0, minimum=1)
                     search_btn = gr.Button("検索", variant="secondary")
                 
                 search_result = gr.Markdown("")
@@ -1404,29 +1550,65 @@ def create_interface():
                 
                 upd_result = gr.Markdown("")
                 
+                # Permission check area (replaces modal)
+                with gr.Column(visible=False) as permission_area:
+                    permission_msg = gr.Markdown("")
+                    with gr.Row():
+                        permission_cancel_btn = gr.Button("キャンセル", variant="secondary")
+                        permission_confirm_btn = gr.Button("", variant="primary", visible=False)
+                        permission_delete_btn = gr.Button("", variant="stop", visible=False)
+                
                 search_btn.click(
                     search_demo_for_update,
                     inputs=[upd_demo_id],
                     outputs=[upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result]
                 )
                 
+                # Update button - check permission first
                 upd_btn.click(
+                    check_update_permission_or_execute,
+                    inputs=[upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks],
+                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result, permission_area, permission_msg, permission_confirm_btn, permission_delete_btn]
+                )
+                
+                # Delete button - check permission first
+                del_btn.click(
+                    check_delete_permission_or_execute,
+                    inputs=[upd_demo_id],
+                    outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result, permission_area, permission_msg, permission_confirm_btn, permission_delete_btn]
+                )
+                
+                # Permission cancel button - hide permission area
+                permission_cancel_btn.click(
+                    lambda: [gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False)],
+                    outputs=[permission_area, permission_msg, permission_confirm_btn, permission_delete_btn]
+                )
+                
+                # Permission confirm button - execute update
+                permission_confirm_btn.click(
                     update_demo,
                     inputs=[upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks],
                     outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
                     show_progress=True
+                ).then(
+                    lambda: [gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False)],
+                    outputs=[permission_area, permission_msg, permission_confirm_btn, permission_delete_btn]
                 )
                 
-                del_btn.click(
+                # Permission delete button - execute delete
+                permission_delete_btn.click(
                     delete_demo,
                     inputs=[upd_demo_id],
                     outputs=[upd_result, upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator, upd_status, upd_demo_url, upd_repo_url, upd_products, upd_confidentiality, upd_remarks, search_result],
                     show_progress=True
+                ).then(
+                    lambda: [gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False)],
+                    outputs=[permission_area, permission_msg, permission_confirm_btn, permission_delete_btn]
                 )
             
-            # Tab 4: Semantic Search Chat
-            with gr.TabItem("🤖 セマンティック検索"):
-                gr.Markdown("## AIチャットボットによるデモ検索")
+            # Tab 4: Bot Consultation Chat
+            with gr.TabItem("🤖 Botに相談"):
+                gr.Markdown("## AIチャットボットによるデモ検索（Powered by Agent Bricks）")
                 gr.Markdown("デモに関する質問をしてください。AIが関連するデモを見つけてお答えします。")
                 
                 chatbot = gr.Chatbot(
@@ -1464,14 +1646,15 @@ def create_interface():
                     outputs=[chatbot, msg]
                 )
     
-        # Auto-set user email for owner_emp_id field on demo load
-        def set_owner_email(request: gr.Request):
+        # Auto-set user email and greeting on demo load
+        def set_user_info(request: gr.Request):
             user_email = get_current_user_email(request)
-            return user_email
+            greeting_msg = get_greeting_message(request)
+            return greeting_msg, user_email
         
         demo.load(
-            set_owner_email,
-            outputs=[reg_owner]
+            set_user_info,
+            outputs=[greeting_display, reg_owner]
         )
     
     return demo
