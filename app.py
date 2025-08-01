@@ -23,6 +23,367 @@ RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
 ITEMS_PER_PAGE = 10
 JST = pytz.timezone('Asia/Tokyo')
 
+# Translation dictionary for multilingual support
+TRANSLATIONS = {
+    "ja": {
+        # Tab names
+        "tab_demo_list": "📋 デモ一覧",
+        "tab_new_registration": "➕ 新規登録",
+        "tab_update_info": "✏️ 情報更新",
+        "tab_ask_bot": "🤖 Botに相談",
+        
+        # Button labels
+        "btn_refresh": "🔄 最新情報に更新",
+        "btn_previous": "« 前へ",
+        "btn_next": "次へ »",
+        "btn_ai_generate": "🤖 AIで自動生成",
+        "btn_ai_polish": "🤖 AIで自動清書",
+        "btn_register": "登録",
+        "btn_search": "検索",
+        "btn_update": "更新",
+        "btn_delete": "削除",
+        "btn_cancel": "キャンセル",
+        "btn_send": "送信",
+        "btn_clear_chat": "チャット履歴をクリア",
+        "btn_language": "言語",
+        
+        # Field labels
+        "label_page": "ページ",
+        "label_demo_details": "デモ詳細",
+        "label_title_required": "タイトル *",
+        "label_summary": "要約",
+        "label_description_required": "詳細説明 (Markdownも可) *",
+        "label_owner_email_required": "代表投稿者メールアドレス *",
+        "label_creator_email": "デモ作成者メールアドレス",
+        "label_status_required": "ステータス *",
+        "label_demo_url_required": "デモURL *",
+        "label_repo_url": "リポジトリURL",
+        "label_products": "利用製品",
+        "label_confidentiality": "機密レベル",
+        "label_remarks": "備考",
+        "label_demo_id": "Demo ID",
+        "label_message": "メッセージ（入力後にShift+Enterで送信）",
+        
+        # Placeholders
+        "placeholder_demo_title": "デモのタイトル",
+        "placeholder_card_summary": "カード表示用の要約",
+        "placeholder_description_md": "詳細説明をMarkdown形式でも記載可能",
+        "placeholder_creator_email": "デモを作成した人のメールアドレス（不明の場合は空白でOK）",
+        "placeholder_demo_url": "https://example.com/demo",
+        "placeholder_repo_url": "https://github.com/user/repo",
+        "placeholder_products": "製品名をカンマ区切りで入力 (例: Databricks, MLflow, Delta Lake)",
+        "placeholder_remarks": "追加の備考があれば記載",
+        "placeholder_demo_id_update": "更新するデモのID（半角数値のみ）",
+        "placeholder_chat_message": "例: 機械学習に関するデモはありますか？",
+        
+        # Section headers
+        "header_demo_list": "## デモ一覧",
+        "header_new_registration": "## 新規デモ登録",
+        "header_update_info": "## デモ情報更新",
+        "header_ai_chat": "## AIチャットボットによるデモ検索（Powered by Agent Bricks）",
+        
+        # Instructions and descriptions
+        "instruction_table_click": "**使い方**: テーブルの行をクリックすると、そのデモの詳細情報が下に表示されます。",
+        "instruction_demo_questions": "デモに関する質問をしてください。AIが関連するデモを見つけてお答えします。",
+        "default_demo_details": "<p>テーブルの行をクリックすると詳細が表示されます。</p>",
+        
+        # Main title and messages
+        "main_title": "🚀 AI Demo Hub - 社内AIデモ共有サイト [📚 操作方法](https://github.com/hiouchiy/ai_demo_hub/blob/main/USER_GUIDE.md)",
+        "greeting_morning": "おはようございます",
+        "greeting_afternoon": "こんにちは", 
+        "greeting_evening": "こんばんは",
+        "greeting_night": "お疲れ様です",
+        
+        # Status options
+        "status_draft": "draft",
+        "status_in_review": "in_review", 
+        "status_published": "published",
+        "status_archived": "archived",
+        
+        # Confidentiality levels
+        "confidentiality_public": "public",
+        "confidentiality_internal": "internal",
+        
+        # Table headers
+        "table_demo_id": "デモID",
+        "table_title": "タイトル",
+        "table_summary": "要約",
+        "table_creator": "デモ作成者",
+        "table_owner": "代表投稿者",
+        "table_updated": "更新日時",
+        "table_status": "ステータス",
+        "table_demo_url": "デモURL",
+        "table_repo_url": "リポジトリURL",
+        "table_products": "利用製品",
+        "table_confidentiality": "機密性",
+        "table_remarks": "備考",
+    },
+    
+    "en": {
+        # Tab names
+        "tab_demo_list": "📋 Demo List",
+        "tab_new_registration": "➕ New Registration",
+        "tab_update_info": "✏️ Update Info",
+        "tab_ask_bot": "🤖 Ask Bot",
+        
+        # Button labels
+        "btn_refresh": "🔄 Refresh",
+        "btn_previous": "« Previous",
+        "btn_next": "Next »",
+        "btn_ai_generate": "🤖 AI Auto-Generate",
+        "btn_ai_polish": "🤖 AI Polish",
+        "btn_register": "Register",
+        "btn_search": "Search",
+        "btn_update": "Update",
+        "btn_delete": "Delete",
+        "btn_cancel": "Cancel",
+        "btn_send": "Send",
+        "btn_clear_chat": "Clear Chat History",
+        "btn_language": "Language",
+        
+        # Field labels
+        "label_page": "Page",
+        "label_demo_details": "Demo Details",
+        "label_title_required": "Title *",
+        "label_summary": "Summary",
+        "label_description_required": "Detailed Description (Markdown supported) *",
+        "label_owner_email_required": "Representative Poster Email *",
+        "label_creator_email": "Demo Creator Email",
+        "label_status_required": "Status *",
+        "label_demo_url_required": "Demo URL *",
+        "label_repo_url": "Repository URL",
+        "label_products": "Products Used",
+        "label_confidentiality": "Confidentiality Level",
+        "label_remarks": "Remarks",
+        "label_demo_id": "Demo ID",
+        "label_message": "Message (Press Shift+Enter to send)",
+        
+        # Placeholders
+        "placeholder_demo_title": "Demo title",
+        "placeholder_card_summary": "Summary for card display",
+        "placeholder_description_md": "Detailed description in Markdown format",
+        "placeholder_creator_email": "Email of the demo creator (leave blank if unknown)",
+        "placeholder_demo_url": "https://example.com/demo",
+        "placeholder_repo_url": "https://github.com/user/repo",
+        "placeholder_products": "Product names separated by commas (e.g., Databricks, MLflow, Delta Lake)",
+        "placeholder_remarks": "Additional remarks if any",
+        "placeholder_demo_id_update": "Demo ID to update (half-width numbers only)",
+        "placeholder_chat_message": "e.g., Are there any machine learning demos?",
+        
+        # Section headers
+        "header_demo_list": "## Demo List",
+        "header_new_registration": "## New Demo Registration",
+        "header_update_info": "## Demo Information Update",
+        "header_ai_chat": "## AI Chatbot Demo Search (Powered by Agent Bricks)",
+        
+        # Instructions and descriptions
+        "instruction_table_click": "**How to use**: Click on a table row to display detailed information below.",
+        "instruction_demo_questions": "Please ask questions about demos. AI will find relevant demos and answer.",
+        "default_demo_details": "<p>Click on a table row to display details.</p>",
+        
+        # Main title and messages
+        "main_title": "🚀 AI Demo Hub - Internal AI Demo Sharing Site [📚 User Guide](https://github.com/hiouchiy/ai_demo_hub/blob/main/USER_GUIDE.md)",
+        "greeting_morning": "Good morning",
+        "greeting_afternoon": "Good afternoon", 
+        "greeting_evening": "Good evening",
+        "greeting_night": "Good work today",
+        
+        # Status options
+        "status_draft": "draft",
+        "status_in_review": "in_review",
+        "status_published": "published", 
+        "status_archived": "archived",
+        
+        # Confidentiality levels
+        "confidentiality_public": "public",
+        "confidentiality_internal": "internal",
+        
+        # Table headers
+        "table_demo_id": "Demo ID",
+        "table_title": "Title",
+        "table_summary": "Summary",
+        "table_creator": "Demo Creator",
+        "table_owner": "Representative Poster", 
+        "table_updated": "Updated",
+        "table_status": "Status",
+        "table_demo_url": "Demo URL",
+        "table_repo_url": "Repository URL",
+        "table_products": "Products Used",
+        "table_confidentiality": "Confidentiality",
+        "table_remarks": "Remarks",
+    }
+}
+
+def get_text(key: str, lang: str = "ja") -> str:
+    """Get translated text by key and language"""
+    return TRANSLATIONS.get(lang, {}).get(key, TRANSLATIONS["ja"].get(key, key))
+
+def rename_table_columns(df, language: str):
+    """Rename DataFrame columns based on language without reloading data"""
+    if df.empty:
+        # For empty DataFrame, create with proper column names for the target language
+        column_order = [
+            get_text("table_demo_id", language),
+            get_text("table_title", language),
+            get_text("table_summary", language),
+            get_text("table_creator", language),
+            get_text("table_owner", language),
+            get_text("table_updated", language),
+            get_text("table_status", language),
+            get_text("table_demo_url", language),
+            get_text("table_repo_url", language),
+            get_text("table_products", language),
+            get_text("table_confidentiality", language),
+            get_text("table_remarks", language)
+        ]
+        return pd.DataFrame(columns=column_order)
+    
+    # Create mapping from current columns to new language columns
+    # We need to map both directions since we don't know the current language
+    ja_to_en = {
+        "デモID": "Demo ID",
+        "タイトル": "Title",
+        "要約": "Summary", 
+        "デモ作成者": "Demo Creator",
+        "代表投稿者": "Representative Poster",
+        "更新日時": "Updated",
+        "ステータス": "Status",
+        "デモURL": "Demo URL",
+        "リポジトリURL": "Repository URL",
+        "利用製品": "Products Used",
+        "機密性": "Confidentiality",
+        "備考": "Remarks"
+    }
+    
+    en_to_ja = {v: k for k, v in ja_to_en.items()}
+    
+    # Determine current language and target mapping
+    current_columns = list(df.columns)
+    
+    if language == "en":
+        # Convert to English
+        column_mapping = ja_to_en
+    else:
+        # Convert to Japanese
+        column_mapping = en_to_ja
+    
+    # Apply mapping
+    new_columns = []
+    for col in current_columns:
+        new_columns.append(column_mapping.get(col, col))
+    
+    # Create new DataFrame with renamed columns
+    new_df = df.copy()
+    new_df.columns = new_columns
+    
+    return new_df
+
+def switch_language(language: str):
+    """Switch interface language and return updated content"""
+    # Update section headers
+    demo_list_header = get_text("header_demo_list", language)
+    new_reg_header = get_text("header_new_registration", language)
+    update_header = get_text("header_update_info", language)
+    ai_chat_header = get_text("header_ai_chat", language)
+    
+    # Update instructions
+    table_instruction = get_text("instruction_table_click", language)
+    demo_questions_instruction = get_text("instruction_demo_questions", language)
+    default_details = get_text("default_demo_details", language)
+    
+    # Update field labels for registration form
+    reg_title_update = gr.update(label=get_text("label_title_required", language), placeholder=get_text("placeholder_demo_title", language))
+    reg_summary_update = gr.update(label=get_text("label_summary", language), placeholder=get_text("placeholder_card_summary", language))
+    reg_description_update = gr.update(label=get_text("label_description_required", language), placeholder=get_text("placeholder_description_md", language))
+    reg_owner_update = gr.update(label=get_text("label_owner_email_required", language))
+    reg_creator_update = gr.update(label=get_text("label_creator_email", language), placeholder=get_text("placeholder_creator_email", language))
+    reg_status_update = gr.update(label=get_text("label_status_required", language))
+    reg_demo_url_update = gr.update(label=get_text("label_demo_url_required", language), placeholder=get_text("placeholder_demo_url", language))
+    reg_repo_url_update = gr.update(label=get_text("label_repo_url", language), placeholder=get_text("placeholder_repo_url", language))
+    reg_products_update = gr.update(label=get_text("label_products", language), placeholder=get_text("placeholder_products", language))
+    reg_confidentiality_update = gr.update(label=get_text("label_confidentiality", language))
+    reg_remarks_update = gr.update(label=get_text("label_remarks", language), placeholder=get_text("placeholder_remarks", language))
+    
+    # Update field labels for update form
+    upd_demo_id_update = gr.update(label=get_text("label_demo_id", language), placeholder=get_text("placeholder_demo_id_update", language))
+    upd_title_update = gr.update(label=get_text("label_title_required", language), placeholder=get_text("placeholder_demo_title", language))
+    upd_summary_update = gr.update(label=get_text("label_summary", language), placeholder=get_text("placeholder_card_summary", language))
+    upd_description_update = gr.update(label=get_text("label_description_required", language), placeholder=get_text("placeholder_description_md", language))
+    upd_owner_update = gr.update(label=get_text("label_owner_email_required", language))
+    upd_creator_update = gr.update(label=get_text("label_creator_email", language), placeholder=get_text("placeholder_creator_email", language))
+    upd_status_update = gr.update(label=get_text("label_status_required", language))
+    upd_demo_url_update = gr.update(label=get_text("label_demo_url_required", language), placeholder=get_text("placeholder_demo_url", language))
+    upd_repo_url_update = gr.update(label=get_text("label_repo_url", language), placeholder=get_text("placeholder_repo_url", language))
+    upd_products_update = gr.update(label=get_text("label_products", language), placeholder=get_text("placeholder_products", language))
+    upd_confidentiality_update = gr.update(label=get_text("label_confidentiality", language))
+    upd_remarks_update = gr.update(label=get_text("label_remarks", language), placeholder=get_text("placeholder_remarks", language))
+    
+    # Update button labels
+    btn_refresh_update = gr.update(value=get_text("btn_refresh", language))
+    btn_prev_update = gr.update(value=get_text("btn_previous", language))
+    btn_next_update = gr.update(value=get_text("btn_next", language))
+    btn_ai_generate_update = gr.update(value=get_text("btn_ai_generate", language))
+    btn_ai_summary_update = gr.update(value=get_text("btn_ai_generate", language))
+    btn_ai_polish_update = gr.update(value=get_text("btn_ai_polish", language))
+    btn_register_update = gr.update(value=get_text("btn_register", language))
+    btn_search_update = gr.update(value=get_text("btn_search", language))
+    btn_update_update = gr.update(value=get_text("btn_update", language))
+    btn_delete_update = gr.update(value=get_text("btn_delete", language))
+    btn_cancel_update = gr.update(value=get_text("btn_cancel", language))
+    btn_send_update = gr.update(value=get_text("btn_send", language))
+    btn_clear_chat_update = gr.update(value=get_text("btn_clear_chat", language))
+    
+    # Update other UI elements
+    page_input_update = gr.update(label=get_text("label_page", language))
+    demo_details_update = gr.update(label=get_text("label_demo_details", language), value=default_details)
+    
+    # Update main title with Markdown header formatting
+    main_title_update = f"# {get_text('main_title', language)}"
+    
+    # Greeting message will be updated separately via .then() to include user name
+    
+    # Update chat message input
+    chat_msg_update = gr.update(label=get_text("label_message", language), placeholder=get_text("placeholder_chat_message", language))
+    
+    # Note: Table data update will be handled separately to avoid unnecessary database queries
+    # Only column names need to be updated, not the data itself
+    
+    # Update tab labels (experimental - may not work in all Gradio versions)
+    tab_demo_list_update = gr.update(label=get_text("tab_demo_list", language))
+    tab_new_reg_update = gr.update(label=get_text("tab_new_registration", language))
+    tab_update_update = gr.update(label=get_text("tab_update_info", language))
+    tab_chat_update = gr.update(label=get_text("tab_ask_bot", language))
+    
+    # Return all updated components
+    return (
+        language,  # language_state
+        demo_list_header,  # demo_list_header
+        table_instruction,  # table_instruction
+        default_details,  # demo_details value
+        new_reg_header,  # reg_header
+        update_header,  # upd_header
+        ai_chat_header,  # chat_header
+        demo_questions_instruction,  # chat_instruction
+        # Registration form updates
+        reg_title_update, reg_summary_update, reg_description_update, reg_owner_update, reg_creator_update,
+        reg_status_update, reg_demo_url_update, reg_repo_url_update, reg_products_update, 
+        reg_confidentiality_update, reg_remarks_update,
+        # Update form updates  
+        upd_demo_id_update, upd_title_update, upd_summary_update, upd_description_update, upd_owner_update, upd_creator_update,
+        upd_status_update, upd_demo_url_update, upd_repo_url_update, upd_products_update,
+        upd_confidentiality_update, upd_remarks_update,
+        # Button updates
+        btn_refresh_update, btn_prev_update, btn_next_update, btn_ai_generate_update, btn_ai_summary_update, btn_ai_polish_update,
+        btn_register_update, btn_search_update, btn_update_update, btn_delete_update, btn_cancel_update,
+        btn_send_update, btn_clear_chat_update,
+        # Other UI updates
+        page_input_update, demo_details_update,
+        # New UI updates
+        main_title_update, chat_msg_update,
+        # Tab label updates
+        tab_demo_list_update, tab_new_reg_update, tab_update_update, tab_chat_update
+    )
+
 def get_current_user_email(request: gr.Request) -> str:
     """Get current user's email from request headers"""
     try:
@@ -42,7 +403,7 @@ def get_current_user_email(request: gr.Request) -> str:
         print(f"Warning: Failed to get user email: {str(e)}")
         return "unknown@databricks.com"
 
-def get_greeting_message(request: gr.Request) -> str:
+def get_greeting_message(request: gr.Request, language: str = "ja") -> str:
     """Generate greeting message based on current time and user"""
     from datetime import datetime
     
@@ -64,23 +425,29 @@ def get_greeting_message(request: gr.Request) -> str:
         
         # Determine greeting based on time
         if 5 <= hour < 12:
-            greeting = "おはようございます"
+            greeting = get_text("greeting_morning", language)
             emoji = "🌅"
         elif 12 <= hour < 18:
-            greeting = "こんにちは"
+            greeting = get_text("greeting_afternoon", language)
             emoji = "☀️"
         elif 18 <= hour < 22:
-            greeting = "こんばんは"
+            greeting = get_text("greeting_evening", language)
             emoji = "🌆"
         else:
-            greeting = "お疲れ様です"
+            greeting = get_text("greeting_night", language)
             emoji = "🌙"
         
-        return f"{emoji} {greeting}、{display_name}さん！"
+        if language == "ja":
+            return f"{emoji} {greeting}、{display_name}さん！"
+        else:
+            return f"{emoji} {greeting}, {display_name}!"
         
     except Exception as e:
         print(f"Warning: Failed to generate greeting: {str(e)}")
-        return "👋 こんにちは！"
+        if language == "ja":
+            return "👋 こんにちは！"
+        else:
+            return "👋 Hello!"
 
 def check_ownership_permission(demo_id, current_user_email: str) -> Tuple[bool, str, str]:
     """Check if current user has permission to modify/delete the demo
@@ -782,7 +1149,7 @@ def get_button_states(current_page: int, total_pages: int) -> tuple:
     return prev_enabled, next_enabled
 
 # Tab 1: Demo List
-def load_demo_list(page: int = 1):
+def load_demo_list(page: int = 1, language: str = "ja"):
     """Load demo list with pagination and sorting"""
     try:
         # Validate inputs with proper type checking
@@ -819,18 +1186,18 @@ def load_demo_list(page: int = 1):
                 products_str = ", ".join(products) if products else ""
                 
                 formatted_demo = {
-                    "デモID": demo_id,
-                    "タイトル": demo.get("title") or "",
-                    "要約": demo.get("summary") or "",
-                    "代表投稿者": demo.get("owner_emp_id") or "",
-                    "デモ作成者": demo.get("creator_emp_id") or "",
-                    "更新日時": format_datetime(demo.get("updated_at")),
-                    "ステータス": demo.get("status") or "",
-                    "デモURL": demo.get("demo_url") or "",
-                    "リポジトリURL": demo.get("repo_url") or "",
-                    "利用製品": products_str,
-                    "機密性": demo.get("confidentiality") or "",
-                    "備考": demo.get("remarks") or ""
+                    get_text("table_demo_id", language): demo_id,
+                    get_text("table_title", language): demo.get("title") or "",
+                    get_text("table_summary", language): demo.get("summary") or "",
+                    get_text("table_owner", language): demo.get("owner_emp_id") or "",
+                    get_text("table_creator", language): demo.get("creator_emp_id") or "",
+                    get_text("table_updated", language): format_datetime(demo.get("updated_at")),
+                    get_text("table_status", language): demo.get("status") or "",
+                    get_text("table_demo_url", language): demo.get("demo_url") or "",
+                    get_text("table_repo_url", language): demo.get("repo_url") or "",
+                    get_text("table_products", language): products_str,
+                    get_text("table_confidentiality", language): demo.get("confidentiality") or "",
+                    get_text("table_remarks", language): demo.get("remarks") or ""
                 }
                 formatted_demos.append(formatted_demo)
             except Exception as format_error:
@@ -846,8 +1213,27 @@ def load_demo_list(page: int = 1):
         last_displayed_demo_html = None
         
         # Define column order with creator_emp_id before owner_emp_id
-        column_order = ["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"]
-        df = pd.DataFrame(formatted_demos)[column_order]
+        column_order = [
+            get_text("table_demo_id", language),
+            get_text("table_title", language),
+            get_text("table_summary", language),
+            get_text("table_creator", language),
+            get_text("table_owner", language),
+            get_text("table_updated", language),
+            get_text("table_status", language),
+            get_text("table_demo_url", language),
+            get_text("table_repo_url", language),
+            get_text("table_products", language),
+            get_text("table_confidentiality", language),
+            get_text("table_remarks", language)
+        ]
+        
+        # Handle empty data case properly
+        if formatted_demos:
+            df = pd.DataFrame(formatted_demos)[column_order]
+        else:
+            # Create empty DataFrame with proper column names for empty data
+            df = pd.DataFrame(columns=column_order)
         
         # Calculate pagination info - ensure proper type conversion
         total_count = int(total_count) if total_count is not None else 0
@@ -862,7 +1248,22 @@ def load_demo_list(page: int = 1):
     except Exception as e:
         error_msg = f"Error: {str(e)}"
         print(f"Load demo list error: {error_msg}")
-        return pd.DataFrame(), error_msg, 1, 1, False, False
+        # Create empty DataFrame with proper column names for error case
+        column_order = [
+            get_text("table_demo_id", language),
+            get_text("table_title", language),
+            get_text("table_summary", language),
+            get_text("table_creator", language),
+            get_text("table_owner", language),
+            get_text("table_updated", language),
+            get_text("table_status", language),
+            get_text("table_demo_url", language),
+            get_text("table_repo_url", language),
+            get_text("table_products", language),
+            get_text("table_confidentiality", language),
+            get_text("table_remarks", language)
+        ]
+        return pd.DataFrame(columns=column_order), error_msg, 1, 1, False, False
 
 def show_demo_all_info_by_click(evt: gr.SelectData):
     """Show all_info_md content when a table row is clicked"""
@@ -1019,11 +1420,11 @@ def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, 
         
         # Handle the case where demo_id might be None or 0
         if demo_id and demo_id > 0:
-            # Clear all fields after successful registration
-            return f"Success: Demo registered with ID {demo_id}", "", "", "", "", "", "draft", "", "", "", "internal", ""
+            # Clear all fields after successful registration, but keep owner_emp_id for consecutive registrations
+            return f"Success: Demo registered with ID {demo_id}", "", "", "", owner_emp_id, "", "draft", "", "", "", "internal", ""
         else:
-            # Clear all fields after successful registration
-            return "Success: Demo registered successfully", "", "", "", "", "", "draft", "", "", "", "internal", ""
+            # Clear all fields after successful registration, but keep owner_emp_id for consecutive registrations
+            return "Success: Demo registered successfully", "", "", "", owner_emp_id, "", "draft", "", "", "", "internal", ""
         
     except Exception as e:
         return f"Error: {str(e)}", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
@@ -1118,8 +1519,9 @@ def check_update_permission_or_execute(demo_id: str, title, summary, description
 
 **注意**: 他の人が投稿したデモを変更することは、通常推奨されません。
         """
-        # Return current state + show confirmation area
-        return ("", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "", gr.update(visible=True), confirmation_msg, gr.update(value="確認して更新実行", visible=True), gr.update(visible=False))
+        # Return current state + show confirmation area  
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return ("", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "", gr.update(visible=True), confirmation_msg, gr.update(value="確認して更新実行", visible=True), gr.update(visible=False))
 
 def check_delete_permission_or_execute(demo_id: str, request: gr.Request):
     """Check permission before delete or show confirmation"""
@@ -1142,7 +1544,8 @@ def check_delete_permission_or_execute(demo_id: str, request: gr.Request):
 削除したデータは復元できません。
         """
         # Return current state + show confirmation area
-        return ("", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "", gr.update(visible=True), confirmation_msg, gr.update(visible=False), gr.update(value="確認して削除実行", visible=True))
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return ("", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "", gr.update(visible=True), confirmation_msg, gr.update(visible=False), gr.update(value="確認して削除実行", visible=True))
 
 def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
     """Update existing demo with progress display"""
@@ -1151,23 +1554,26 @@ def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_e
         
         # Convert number to string if needed
         if demo_id is None or demo_id == "":
-            return "Error: デモを検索してください。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
+            return "Error: デモを検索してください。", None, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
         
         demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
         
         if not demo_id_str:
-            return "Error: デモを検索してください。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
+            return "Error: デモを検索してください。", None, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "デモを検索してください。"
         
         # Validation
         if not title or not owner_emp_id or not status or not demo_url:
-            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Required fields cannot be empty."
+            safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+            return "Error: Required fields (title, owner_emp_id, status, demo_url) cannot be empty.", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Required fields cannot be empty."
         
         if not validate_email(owner_emp_id):
-            return "Error: Invalid email format for owner_emp_id.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
+            safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+            return "Error: Invalid email format for owner_emp_id.", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
         
         # Validate creator_emp_id if provided
         if creator_emp_id and not validate_email(creator_emp_id):
-            return "Error: Invalid email format for creator_emp_id.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
+            safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+            return "Error: Invalid email format for creator_emp_id.", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid email format."
         
         progress(0.3, desc="Processing demo ID...")
         
@@ -1175,9 +1581,11 @@ def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_e
         try:
             demo_id_int = int(float(demo_id_str))
             if demo_id_int <= 0:
-                return "Error: デモIDは正の数値である必要があります。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモIDです。"
+                safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+                return "Error: デモIDは正の数値である必要があります。", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモIDです。"
         except (ValueError, TypeError, OverflowError):
-            return "Error: 無効なデモID形式です。", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモID形式です。"
+            safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+            return "Error: 無効なデモID形式です。", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "無効なデモID形式です。"
         
         progress(0.5, desc="Preparing data...")
         
@@ -1204,12 +1612,16 @@ def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_e
         progress(1.0, desc="Update completed!")
         
         # Clear all fields on successful update
-        return "Success: Demo updated successfully.", "", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
+        return "Success: Demo updated successfully.", None, "", "", "", "", "", "draft", "", "", "", "internal", "", ""
         
     except ValueError:
-        return "Error: Invalid demo ID format.", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
+        # Ensure demo_id is numeric or None for gr.Number component
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return "Error: Invalid demo ID format.", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, "Invalid demo ID format."
     except Exception as e:
-        return f"Error: {str(e)}", demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
+        # Ensure demo_id is numeric or None for gr.Number component
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return f"Error: {str(e)}", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
 
 def delete_demo(demo_id, progress=gr.Progress()):
     """Delete demo by ID with progress display"""
@@ -1218,12 +1630,12 @@ def delete_demo(demo_id, progress=gr.Progress()):
         
         # Convert number to string if needed
         if demo_id is None or demo_id == "":
-            return "Error: デモを検索してください。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
+            return "Error: デモを検索してください。", None, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
         
         demo_id_str = str(int(demo_id)) if isinstance(demo_id, (int, float)) else str(demo_id).strip()
         
         if not demo_id_str:
-            return "Error: デモを検索してください。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
+            return "Error: デモを検索してください。", None, "", "", "", "", "", "draft", "", "", "", "internal", "", "デモを検索してください。"
         
         progress(0.3, desc="Processing demo ID...")
         
@@ -1231,9 +1643,11 @@ def delete_demo(demo_id, progress=gr.Progress()):
         try:
             demo_id_int = int(float(demo_id_str))
             if demo_id_int <= 0:
-                return "Error: デモIDは正の数値である必要があります。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモIDです。"
+                safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+                return "Error: デモIDは正の数値である必要があります。", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモIDです。"
         except (ValueError, TypeError, OverflowError):
-            return "Error: 無効なデモID形式です。", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモID形式です。"
+            safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+            return "Error: 無効なデモID形式です。", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "無効なデモID形式です。"
         
         progress(0.5, desc="Checking demo existence...")
         
@@ -1250,12 +1664,16 @@ def delete_demo(demo_id, progress=gr.Progress()):
         progress(1.0, desc="Deletion completed!")
         
         # Clear all fields on successful deletion
-        return f"Success: Demo ID {demo_id_int} has been deleted successfully.", "", "", "", "", "", "", "draft", "", "", "", "internal", "", ""
+        return f"Success: Demo ID {demo_id_int} has been deleted successfully.", None, "", "", "", "", "", "draft", "", "", "", "internal", "", ""
         
     except ValueError:
-        return "Error: Invalid demo ID format.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
+        # Ensure demo_id is numeric or None for gr.Number component
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return "Error: Invalid demo ID format.", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Invalid demo ID format."
     except Exception as e:
-        return f"Error: {str(e)}", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", f"Error: {str(e)}"
+        # Ensure demo_id is numeric or None for gr.Number component  
+        safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
+        return f"Error: {str(e)}", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", f"Error: {str(e)}"
 
 # Tab 4: Semantic Search Chat
 def chat_with_rag(message: str, history: List[Dict]):
@@ -1363,16 +1781,32 @@ def create_interface():
     """Create the main Gradio interface"""
     
     with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# 🚀 AI Demo Hub - 社内AIデモ共有サイト [📚 操作方法](https://github.com/hiouchiy/ai_demo_hub/blob/main/USER_GUIDE.md)")
+        # Language state
+        language_state = gr.State(value="ja")
+        # User email state for greeting updates
+        user_email_state = gr.State(value="")
+        
+        # Header with language switch
+        with gr.Row():
+            with gr.Column(scale=8):
+                title_display = gr.Markdown(f"# {get_text('main_title', 'ja')}")
+            with gr.Column(scale=1, min_width=120):
+                language_switch = gr.Dropdown(
+                    choices=[("🇯🇵 日本語", "ja"), ("🇺🇸 English", "en")],
+                    value="ja",
+                    show_label=False,
+                    container=True,
+                    elem_id="language-switch"
+                )
         
         # User greeting area
         greeting_display = gr.Markdown("", elem_id="greeting")
         
-        with gr.Tabs():
+        with gr.Tabs() as tabs:
             # Tab 1: Demo List
-            with gr.TabItem("📋 デモ一覧"):
-                gr.Markdown("## デモ一覧")
-                gr.Markdown("**使い方**: テーブルの行をクリックすると、そのデモの詳細情報が下に表示されます。")
+            with gr.TabItem(get_text("tab_demo_list", "ja")) as demo_list_tab:
+                demo_list_header = gr.Markdown("## デモ一覧")
+                table_instruction = gr.Markdown("**使い方**: テーブルの行をクリックすると、そのデモの詳細情報が下に表示されます。")
                 
                 with gr.Row():
                     gr.HTML("")  # Left spacer to push content to the right
@@ -1446,8 +1880,8 @@ def create_interface():
                 )
             
             # Tab 2: New Demo Registration
-            with gr.TabItem("➕ 新規登録"):
-                gr.Markdown("## 新規デモ登録")
+            with gr.TabItem(get_text("tab_new_registration", "ja")) as new_reg_tab:
+                reg_header = gr.Markdown("## 新規デモ登録")
                 
                 with gr.Column():
                     # Title with AI generation button
@@ -1514,8 +1948,8 @@ def create_interface():
                 )
             
             # Tab 3: Demo Update
-            with gr.TabItem("✏️ 情報更新"):
-                gr.Markdown("## デモ情報更新")
+            with gr.TabItem(get_text("tab_update_info", "ja")) as update_tab:
+                upd_header = gr.Markdown("## デモ情報更新")
                 
                 with gr.Row():
                     upd_demo_id = gr.Number(label="Demo ID", placeholder="更新するデモのID（半角数値のみ）", precision=0, minimum=1)
@@ -1607,9 +2041,9 @@ def create_interface():
                 )
             
             # Tab 4: Bot Consultation Chat
-            with gr.TabItem("🤖 Botに相談"):
-                gr.Markdown("## AIチャットボットによるデモ検索（Powered by Agent Bricks）")
-                gr.Markdown("デモに関する質問をしてください。AIが関連するデモを見つけてお答えします。")
+            with gr.TabItem(get_text("tab_ask_bot", "ja")) as chat_tab:
+                chat_header = gr.Markdown("## AIチャットボットによるデモ検索（Powered by Agent Bricks）")
+                chat_instruction = gr.Markdown("デモに関する質問をしてください。AIが関連するデモを見つけてお答えします。")
                 
                 chatbot = gr.Chatbot(
                     height=400,
@@ -1647,14 +2081,63 @@ def create_interface():
                 )
     
         # Auto-set user email and greeting on demo load
-        def set_user_info(request: gr.Request):
+        def set_user_info(request: gr.Request, language: str = "ja"):
             user_email = get_current_user_email(request)
-            greeting_msg = get_greeting_message(request)
-            return greeting_msg, user_email
+            greeting_msg = get_greeting_message(request, language)
+            return greeting_msg, user_email, user_email
+        
+        def update_greeting_only(language: str, user_email: str):
+            """Update only greeting message when language changes"""
+            # Create a fake request object with the stored user email
+            class FakeRequest:
+                def __init__(self, email):
+                    self.headers = {"x-forwarded-email": email}
+            
+            fake_request = FakeRequest(user_email)
+            return get_greeting_message(fake_request, language)
         
         demo.load(
             set_user_info,
-            outputs=[greeting_display, reg_owner]
+            outputs=[greeting_display, reg_owner, user_email_state]
+        )
+        
+        # Language switch event handler
+        language_switch.change(
+            switch_language,
+            inputs=[language_switch],
+            outputs=[
+                # Basic state and headers
+                language_state, demo_list_header, table_instruction, demo_details,
+                reg_header, upd_header, chat_header, chat_instruction,
+                # Registration form fields
+                reg_title, reg_summary, reg_description, reg_owner, reg_creator,
+                reg_status, reg_demo_url, reg_repo_url, reg_products, 
+                reg_confidentiality, reg_remarks,
+                # Update form fields
+                upd_demo_id, upd_title, upd_summary, upd_description, upd_owner, upd_creator,
+                upd_status, upd_demo_url, upd_repo_url, upd_products,
+                upd_confidentiality, upd_remarks,
+                # Buttons
+                refresh_btn, prev_btn, next_btn, ai_title_btn, ai_summary_btn, ai_polish_btn,
+                reg_btn, search_btn, upd_btn, del_btn, permission_cancel_btn,
+                send_btn, clear_btn,
+                # Other UI elements
+                page_input, demo_details,
+                # New UI elements
+                title_display, msg,
+                # Tab elements
+                demo_list_tab, new_reg_tab, update_tab, chat_tab
+            ]
+        ).then(
+            # Update table column names only (lightweight operation)
+            rename_table_columns,
+            inputs=[demo_table, language_state],
+            outputs=[demo_table]
+        ).then(
+            # Update greeting message with user name in the new language
+            update_greeting_only,
+            inputs=[language_state, user_email_state],
+            outputs=[greeting_display]
         )
     
     return demo
