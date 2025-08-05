@@ -17,14 +17,30 @@ load_dotenv()
 class APIBasedDatabaseManager:
     """REST API based Database Manager"""
     
-    def __init__(self):
+    def __init__(self, user_token: str = None):
         self.server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME", "adb-984752964297111.11.azuredatabricks.net")
         self.warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "148ccb90800933a1")
-        self.access_token = os.getenv("DATABRICKS_TOKEN")
+        
+        # Use provided user token, fallback to system token if available
+        if user_token:
+            self.access_token = user_token
+        else:
+            system_token = os.getenv("DATABRICKS_TOKEN")
+            if system_token:
+                self.access_token = system_token
+            else:
+                # No token available - will cause authentication errors downstream
+                self.access_token = None
+        
         self.base_url = f"https://{self.server_hostname}/api/2.0/sql/statements"
         
     def execute_query_api(self, query: str) -> List[Dict]:
         """Execute query using Databricks REST API"""
+        if not self.access_token:
+            raise ValueError("No access token available for database operations. Please ensure user authentication is properly configured.")
+        
+
+        
         headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
@@ -39,6 +55,13 @@ class APIBasedDatabaseManager:
         
         try:
             response = requests.post(self.base_url, headers=headers, json=payload)
+            
+            # Handle authentication errors
+            if response.status_code == 403:
+                raise ValueError(f"Database access forbidden (403). This may indicate insufficient permissions for the current authentication token. Please check token permissions for SQL Warehouse access.")
+            elif response.status_code == 401:
+                raise ValueError(f"Database access unauthorized (401). The authentication token may be invalid or expired.")
+            
             response.raise_for_status()
             
             result = response.json()
@@ -63,14 +86,13 @@ class APIBasedDatabaseManager:
                     
                     return results
                 else:
-                    print(f"No data_array in result: {result}")
                     return []
             else:
-                print(f"Query failed: {result}")
                 return []
                 
+        except requests.exceptions.RequestException as e:
+            return []
         except Exception as e:
-            print(f"API query failed: {e}")
             return []
     
     def test_connection(self) -> bool:

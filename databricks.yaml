@@ -1,0 +1,25 @@
+bundle:
+  name: japan-ai-demo-hub
+
+targets:
+  dev:
+    default: true
+
+variables:
+  warehouse_id:
+    description: "既存の SQL Warehouse（例: Shared Endpoint）の ID"
+    # default は空でもOK。環境や target 側で上書き可
+    default: ""
+
+resources:
+  apps:
+    japan-ai-demo-hub:
+      name: japan-ai-demo-hub
+      source_code_path: /Workspace/Users/hiroshi.ouchiyama@databricks.com/japan-ai-demo-hub
+      user_api_scopes:
+        - sql
+      resources:
+        - name: sql_warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE

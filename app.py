@@ -17,7 +17,7 @@ load_dotenv()
 
 # Constants
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
-DATABRICKS_SERVER_HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME")
+DATABRICKS_SERVER_HOSTNAME = os.getenv("DATABRICKS_HOST")
 DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
 ITEMS_PER_PAGE = 10
@@ -449,7 +449,7 @@ def get_greeting_message(request: gr.Request, language: str = "ja") -> str:
         else:
             return "👋 Hello!"
 
-def check_ownership_permission(demo_id, current_user_email: str) -> Tuple[bool, str, str]:
+def check_ownership_permission(demo_id, current_user_email: str, user_token: str = None) -> Tuple[bool, str, str]:
     """Check if current user has permission to modify/delete the demo
     
     Returns:
@@ -474,7 +474,8 @@ def check_ownership_permission(demo_id, current_user_email: str) -> Tuple[bool, 
             return False, "", "Demo IDの形式が正しくありません。"
         
         # Get demo data from database
-        demo = db_manager.get_demo_by_id(demo_id_int)
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        demo = user_db_manager.get_demo_by_id(demo_id_int)
         if not demo:
             return False, "", "指定されたデモが見つかりません。"
         
@@ -489,13 +490,106 @@ def check_ownership_permission(demo_id, current_user_email: str) -> Tuple[bool, 
     except Exception as e:
         return False, "", f"権限チェック中にエラーが発生しました: {str(e)}"
 
+def get_service_principal_token() -> str:
+    """Get Service Principal OAuth token for database operations"""
+    try:
+        client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+        client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
+        databricks_host = os.getenv('DATABRICKS_HOST')
+        
+        if not all([client_id, client_secret, databricks_host]):
+            missing = []
+            if not client_id: missing.append("CLIENT_ID")
+            if not client_secret: missing.append("CLIENT_SECRET") 
+            if not databricks_host: missing.append("DATABRICKS_HOST")
+            raise ValueError(f"Service Principal credentials missing: {', '.join(missing)}")
+        
+        # Ensure https:// scheme is present
+        if not databricks_host.startswith('https://') and not databricks_host.startswith('http://'):
+            databricks_host = f"https://{databricks_host}"
+        
+        token_url = f"{databricks_host}/oidc/v1/token"
+        
+        response = requests.post(
+            token_url,
+            auth=(client_id, client_secret),
+            data={"grant_type": "client_credentials", "scope": "all-apis"},
+            timeout=30
+        )
+        
+        response.raise_for_status()
+        token_data = response.json()
+        access_token = token_data["access_token"]
+        return access_token
+    except Exception as e:
+        raise
+
+def test_token_permissions(token: str) -> bool:
+    """Test if a token has SQL Warehouse access permissions"""
+    try:
+        from api_database_manager import APIBasedDatabaseManager
+        test_manager = APIBasedDatabaseManager(token)
+        # Simple test query to check permissions
+        result = test_manager.execute_query_api("SELECT 1 as test_permission")
+        return len(result) > 0  # If we get any result, permissions are OK
+    except Exception as e:
+        return False
+
+def get_user_access_token(request: gr.Request) -> str:
+    """Get access token for database operations with fallback priority:
+    1. User token from headers (x-forwarded-access-token) - test permissions first
+    2. Service Principal token (OAuth environment)
+    3. System token (PAT environment)
+    """
+    # Check if running in OAuth environment
+    client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+    client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
+    use_oauth = bool(client_id and client_secret)
+    
+    # Try different possible header names for user token
+    possible_headers = [
+        "x-forwarded-access-token",
+        "X-Forwarded-Access-Token", 
+        "authorization",
+        "Authorization"
+    ]
+    
+    user_token = None
+    for header_name in possible_headers:
+        user_token = request.headers.get(header_name)
+        if user_token:
+            # Test if user token has SQL Warehouse permissions
+            if test_token_permissions(user_token):
+                return user_token
+            else:
+                if use_oauth:
+                    break  # Fall through to Service Principal logic
+                else:
+                    return DATABRICKS_TOKEN or ""
+    
+    if use_oauth:
+        # Priority 2: Service Principal token in OAuth environment
+        try:
+            service_token = get_service_principal_token()
+            # Test Service Principal token permissions as well
+            if test_token_permissions(service_token):
+                return service_token
+            else:
+                return ""
+                
+        except Exception as e:
+            return ""
+    else:
+        # Priority 3: System token for local testing
+        return DATABRICKS_TOKEN or ""
+
 class DatabaseManager:
     """Database connection and operations manager"""
     
-    def __init__(self):
+    def __init__(self, user_token: str = None):
         self.server_hostname = DATABRICKS_SERVER_HOSTNAME
         self.http_path = f"/sql/1.0/warehouses/{DATABRICKS_WAREHOUSE_ID}"
-        self.access_token = DATABRICKS_TOKEN
+        self.access_token = user_token or DATABRICKS_TOKEN
         
     def test_connection(self) -> bool:
         """Test database connection"""
@@ -788,27 +882,81 @@ class RAGClient:
     
     def __init__(self):
         self.endpoint = RAG_ENDPOINT
-        self.token = DATABRICKS_TOKEN
+        # Check if running in Databricks Apps environment
+        self.client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+        self.client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
+        self.pat_token = DATABRICKS_TOKEN
+        
+        # Determine authentication method - both client_id and client_secret must be non-empty
+        self.use_oauth = bool(self.client_id and self.client_secret)
+        
+        # OAuth or PAT authentication is determined by use_oauth flag
+    
+    def get_oauth_token(self):
+        """Get OAuth access token for Service Principal authentication"""
+        try:
+            # Get host directly from environment variable to avoid Config conflicts
+            databricks_host = os.getenv('DATABRICKS_HOST')
+            if not databricks_host:
+                raise ValueError("DATABRICKS_HOST environment variable is required for OAuth authentication")
+            
+            # Ensure https:// scheme is present
+            if not databricks_host.startswith('https://') and not databricks_host.startswith('http://'):
+                databricks_host = f"https://{databricks_host}"
+            
+            token_url = f"{databricks_host}/oidc/v1/token"
+            
+            response = requests.post(
+                token_url,
+                auth=(self.client_id, self.client_secret),
+                data={"grant_type": "client_credentials", "scope": "all-apis"},
+                timeout=30
+            )
+                
+            response.raise_for_status()
+            
+            token_data = response.json()
+            access_token = token_data["access_token"]
+            return access_token
+            
+        except Exception as e:
+            raise
         
     def chat_completion(self, messages: List[Dict[str, str]]) -> str:
         """Send chat completion request to RAG system"""
         if not self.endpoint:
             return "RAG_ENDPOINTが設定されていません。環境変数を確認してください。"
             
+        # Get authentication token based on environment
+        try:
+            if self.use_oauth:
+                # Use OAuth Service Principal authentication for production
+                token = self.get_oauth_token()
+            else:
+                # Use PAT token for local development
+                if not self.pat_token:
+                    return "DATABRICKS_TOKENが設定されていません。環境変数を確認してください。"
+                token = self.pat_token
+        except Exception as e:
+            return f"認証エラーが発生しました: {str(e)}"
+            
+        # Convert messages to the expected input format
+        # RAG endpoint expects messages array in the input field with system message
+        input_messages = [
+            {"role": "system", "content": "You are a helpful agent that assists users with finding information about AI demos. Please respond in Japanese."}
+        ]
+        
+        # Add the original messages to the input
+        input_messages.extend(messages)
+        
         data = {
-            "messages": messages
+            "input": input_messages
         }
         
         headers = {
             "Content-Type": "application/json", 
-            "Authorization": f"Bearer {self.token}"
+            "Authorization": f"Bearer {token}"
         }
-        
-        # Debug: Print request details
-        print(f"🔍 RAG Request Debug:")
-        print(f"   Endpoint: {self.endpoint}")
-        print(f"   Messages count: {len(messages)}")
-        print(f"   Request data: {json.dumps(data, ensure_ascii=False, indent=2)}")
         
         try:
             response = requests.post(
@@ -817,16 +965,43 @@ class RAGClient:
                 headers=headers
             )
             
-            print(f"   Response status: {response.status_code}")
-            
-            if response.status_code != 200:
-                print(f"   Response text: {response.text}")
-            
             response.raise_for_status()
             
             result = response.json()
-            print(f"   Response success: {len(result.get('choices', []))} choices")
-            return result["choices"][0]["message"]["content"]
+            
+            # Handle different response formats
+            if "output" in result and len(result["output"]) > 0:
+                # RAG Agent response format: output[0].content[0].text
+                output_item = result["output"][0]
+                if "content" in output_item and len(output_item["content"]) > 0:
+                    content_item = output_item["content"][0]
+                    if "text" in content_item:
+                        return content_item["text"]
+                    else:
+                        print(f"   No 'text' field in content item: {content_item}")
+                        return str(content_item)
+                else:
+                    print(f"   No 'content' field in output item: {output_item}")
+                    return str(output_item)
+            elif "choices" in result and len(result["choices"]) > 0:
+                # OpenAI-style response format
+                return result["choices"][0]["message"]["content"]
+            elif "predictions" in result and len(result["predictions"]) > 0:
+                # Databricks serving endpoint format
+                prediction = result["predictions"][0]
+                if isinstance(prediction, dict) and "content" in prediction:
+                    return prediction["content"]
+                elif isinstance(prediction, str):
+                    return prediction
+                else:
+                    return str(prediction)
+            elif "result" in result:
+                # Result format
+                return str(result["result"])
+            else:
+                # Fallback: return the entire result as string
+                print(f"   Unknown response format, returning full result")
+                return str(result)
         except Exception as e:
             print(f"   RAG Error: {str(e)}")
             return f"エラーが発生しました: {str(e)}"
@@ -836,23 +1011,38 @@ class TitleGenerator:
     
     def __init__(self):
         try:
-            # PATトークンのみを使用するように明示的に設定
+            # Get authentication variables
             databricks_host = os.getenv('DATABRICKS_HOST')
             databricks_token = os.getenv('DATABRICKS_TOKEN')
+            client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+            client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
             
-            if not databricks_host or not databricks_token:
-                raise ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN environment variables are required")
+            if not databricks_host:
+                raise ValueError("DATABRICKS_HOST environment variable is required")
             
-            # OAuth関連の環境変数を無視してPATのみを使用
-            self.client = WorkspaceClient(
-                host=databricks_host,
-                token=databricks_token,
-                auth_type="pat",
-                # OAuth環境変数を明示的に無効化
-                client_id=None,
-                client_secret=None
-            )
+            # Determine authentication method - both client_id and client_secret must be non-empty
+            use_oauth = bool(client_id and client_secret)
+            
+            if use_oauth:
+                # Use OAuth Service Principal authentication for production
+                self.client = WorkspaceClient(
+                    host=databricks_host,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    auth_type="oauth-m2m"  # M2M OAuth を明示
+                )
+            else:
+                # Use PAT token for local development
+                if not databricks_token:
+                    raise ValueError("DATABRICKS_TOKEN environment variable is required for PAT authentication")
+                self.client = WorkspaceClient(
+                    host=databricks_host,
+                    token=databricks_token,
+                    auth_type="pat"
+                )
+                
             self.openai_client = self.client.serving_endpoints.get_open_ai_client()
+            
         except Exception as e:
             print(f"Warning: Failed to initialize TitleGenerator: {str(e)}")
             self.openai_client = None
@@ -1149,7 +1339,7 @@ def get_button_states(current_page: int, total_pages: int) -> tuple:
     return prev_enabled, next_enabled
 
 # Tab 1: Demo List
-def load_demo_list(page: int = 1, language: str = "ja"):
+def load_demo_list(page: int = 1, language: str = "ja", request: gr.Request = None):
     """Load demo list with pagination and sorting"""
     try:
         # Validate inputs with proper type checking
@@ -1158,8 +1348,12 @@ def load_demo_list(page: int = 1, language: str = "ja"):
         else:
             page = int(page)
             
+        # Get user token and create database manager
+        user_token = get_user_access_token(request) if request else None
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        
         # Use default sorting by created_at DESC (newest first)
-        demos, total_count = db_manager.get_demos(page, "created_at", "DESC")
+        demos, total_count = user_db_manager.get_demos(page, "created_at", "DESC")
         
         # Format data for display
         formatted_demos = []
@@ -1293,7 +1487,24 @@ def show_demo_all_info_by_click(evt: gr.SelectData):
             return last_displayed_demo_html
         
         # Get demo with all_info_md using internal function
-        demo_full = db_manager.get_demo_by_id_internal(demo_id)
+        # Use Service Principal token for read-only operations in event handlers
+        try:
+            # Try to get Service Principal token for OAuth environment
+            client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+            client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
+            use_oauth = bool(client_id and client_secret)
+            
+            if use_oauth:
+                service_token = get_service_principal_token()
+                fallback_db_manager = APIBasedDatabaseManager(service_token)
+            else:
+                # Use system token for local development
+                fallback_db_manager = APIBasedDatabaseManager()
+        except Exception as e:
+            # Fallback to system token
+            fallback_db_manager = APIBasedDatabaseManager()
+            
+        demo_full = fallback_db_manager.get_demo_by_id_internal(demo_id)
         
         if demo_full and demo_full.get('all_info_md'):
             # Convert markdown to HTML for display
@@ -1375,7 +1586,7 @@ def polish_description_text(rough_description: str) -> str:
         return f"Error: 清書に失敗しました ({str(e)})"
 
 # Tab 2: New Demo Registration
-def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
+def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, request: gr.Request, progress=gr.Progress()):
     """Register new demo with progress display"""
     try:
         progress(0.1, desc="Validating input...")
@@ -1414,7 +1625,11 @@ def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, 
         
         progress(0.8, desc="Registering demo...")
         
-        demo_id = db_manager.insert_demo(data)
+        # Get user token and create database manager
+        user_token = get_user_access_token(request)
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        
+        demo_id = user_db_manager.insert_demo(data)
         
         progress(1.0, desc="Registration completed!")
         
@@ -1430,7 +1645,7 @@ def register_demo(title, summary, description_md, owner_emp_id, creator_emp_id, 
         return f"Error: {str(e)}", title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks
 
 # Tab 3: Demo Update
-def search_demo_for_update(demo_id):
+def search_demo_for_update(demo_id, request: gr.Request):
     """Search demo by ID for update"""
     try:
         # Convert number to string if needed
@@ -1450,7 +1665,10 @@ def search_demo_for_update(demo_id):
         except (ValueError, TypeError, OverflowError):
             return "", "", "", "", "", "", "", "", "", "", "", "無効なデモID形式です。正の数値を入力してください。"
         
-        demo = db_manager.get_demo_by_id(demo_id_int)
+        # Get user access token for database operations
+        user_token = get_user_access_token(request)
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        demo = user_db_manager.get_demo_by_id(demo_id_int)
         
         if not demo:
             return "", "", "", "", "", "", "", "", "", "", "", "Demo not found."
@@ -1503,11 +1721,12 @@ def search_demo_for_update(demo_id):
 def check_update_permission_or_execute(demo_id: str, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, request: gr.Request):
     """Check permission before update or show confirmation"""
     current_user_email = get_current_user_email(request)
-    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email)
+    user_token = get_user_access_token(request)
+    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email, user_token)
     
     if has_permission:
         # Direct execution - user owns the demo
-        return update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
+        return update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, request) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
     else:
         # Show confirmation area
         confirmation_msg = f"""
@@ -1526,11 +1745,12 @@ def check_update_permission_or_execute(demo_id: str, title, summary, description
 def check_delete_permission_or_execute(demo_id: str, request: gr.Request):
     """Check permission before delete or show confirmation"""
     current_user_email = get_current_user_email(request)
-    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email)
+    user_token = get_user_access_token(request)
+    has_permission, original_owner, message = check_ownership_permission(demo_id, current_user_email, user_token)
     
     if has_permission:
         # Direct execution - user owns the demo
-        return delete_demo(demo_id) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
+        return delete_demo(demo_id, request) + (gr.update(visible=False), "", gr.update(visible=False), gr.update(visible=False))
     else:
         # Show confirmation area
         confirmation_msg = f"""
@@ -1547,7 +1767,7 @@ def check_delete_permission_or_execute(demo_id: str, request: gr.Request):
         safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
         return ("", safe_demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "", gr.update(visible=True), confirmation_msg, gr.update(visible=False), gr.update(value="確認して削除実行", visible=True))
 
-def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, progress=gr.Progress()):
+def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, request: gr.Request, progress=gr.Progress()):
     """Update existing demo with progress display"""
     try:
         progress(0.1, desc="Validating input...")
@@ -1607,7 +1827,11 @@ def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_e
         
         progress(0.8, desc="Updating demo...")
         
-        db_manager.update_demo(demo_id_int, data)
+        # Get user token and create database manager
+        user_token = get_user_access_token(request)
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        
+        user_db_manager.update_demo(demo_id_int, data)
         
         progress(1.0, desc="Update completed!")
         
@@ -1623,7 +1847,7 @@ def update_demo(demo_id, title, summary, description_md, owner_emp_id, creator_e
         safe_demo_id = None if demo_id == "" or demo_id is None else demo_id
         return f"Error: {str(e)}", safe_demo_id, title, summary, description_md, owner_emp_id, creator_emp_id, status, demo_url, repo_url, products_str, confidentiality, remarks, f"Error: {str(e)}"
 
-def delete_demo(demo_id, progress=gr.Progress()):
+def delete_demo(demo_id, request: gr.Request, progress=gr.Progress()):
     """Delete demo by ID with progress display"""
     try:
         progress(0.1, desc="Validating input...")
@@ -1651,15 +1875,19 @@ def delete_demo(demo_id, progress=gr.Progress()):
         
         progress(0.5, desc="Checking demo existence...")
         
+        # Get user token and create database manager
+        user_token = get_user_access_token(request)
+        user_db_manager = APIBasedDatabaseManager(user_token)
+        
         # Check if demo exists before deletion
-        demo = db_manager.get_demo_by_id(demo_id_int)
+        demo = user_db_manager.get_demo_by_id(demo_id_int)
         if not demo:
             return "Error: Demo not found.", demo_id, "", "", "", "", "", "draft", "", "", "", "internal", "", "Demo not found."
         
         progress(0.8, desc="Deleting demo...")
         
         # Delete the demo
-        db_manager.delete_demo(demo_id_int)
+        user_db_manager.delete_demo(demo_id_int)
         
         progress(1.0, desc="Deletion completed!")
         
@@ -1833,8 +2061,13 @@ def create_interface():
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
                 
                 # Event handlers
-                def refresh_demo_list(page):
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page)
+                def refresh_demo_list(page, request: gr.Request):
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page, "ja", request)
+                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                
+                def initial_load_demo_list(request: gr.Request):
+                    """Initial load function that works with demo.load"""
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(1, "ja", request)
                     return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 refresh_btn.click(
@@ -1844,9 +2077,9 @@ def create_interface():
                 )
                 
                 # Previous page button
-                def go_previous_page(current_page, total_pages):
+                def go_previous_page(current_page, total_pages, request: gr.Request):
                     new_page = get_previous_page(current_page)
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page)
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", request)
                     return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 prev_btn.click(
@@ -1856,9 +2089,9 @@ def create_interface():
                 )
                 
                 # Next page button
-                def go_next_page(current_page, total_pages):
+                def go_next_page(current_page, total_pages, request: gr.Request):
                     new_page = get_next_page(current_page, total_pages)
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page)
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", request)
                     return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 next_btn.click(
@@ -1874,8 +2107,8 @@ def create_interface():
                 
                 # Load initial data
                 demo.load(
-                    refresh_demo_list,
-                    inputs=[gr.Number(value=1, visible=False)],
+                    initial_load_demo_list,
+                    inputs=None,
                     outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
             
@@ -2143,14 +2376,25 @@ def create_interface():
     return demo
 
 if __name__ == "__main__":
-    # Check environment variables
-    if not DATABRICKS_TOKEN:
-        print("Error: DATABRICKS_TOKEN environment variable is not set")
-        exit(1)
+    # Check required environment variables based on authentication method
+    client_id = os.getenv('DATABRICKS_CLIENT_ID', '').strip()
+    client_secret = os.getenv('DATABRICKS_CLIENT_SECRET', '').strip()
+    use_oauth = bool(client_id and client_secret)
     
-    if not RAG_ENDPOINT:
-        print("Error: RAG_ENDPOINT environment variable is not set")
-        exit(1)
+    if use_oauth:
+        # In OAuth environment, check required endpoints
+        if not RAG_ENDPOINT:
+            print("Error: RAG_ENDPOINT environment variable is not set")
+            exit(1)
+    else:
+        # In PAT environment, DATABRICKS_TOKEN is required
+        if not DATABRICKS_TOKEN:
+            print("Error: DATABRICKS_TOKEN environment variable is not set")
+            exit(1)
+        
+        if not RAG_ENDPOINT:
+            print("Error: RAG_ENDPOINT environment variable is not set")
+            exit(1)
     
     # Create and launch the interface
     interface = create_interface()
