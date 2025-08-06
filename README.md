@@ -87,14 +87,42 @@ Cursor（推奨開発環境）でDatabricks MCP機能を使用するために、
 
 > ⚠️ `YOUR_WORKSPACE`を実際のワークスペース名に、`DATABRICKS_TOKEN`を実際のトークンに置き換えてください。
 
-### 3. 依存関係のインストール
+### 3. uvパッケージマネージャーのインストール
+
+#### Mac OSの場合
+
+```bash
+# Homebrewを使用（推奨）
+brew install uv
+
+# または、curl（Homebrewがない場合）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### その他のOS
+
+```bash
+# pip経由でのインストール
+pip install uv
+
+# または、curl（Linux/macOS）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### インストール確認
+
+```bash
+uv --version
+```
+
+### 4. 依存関係のインストール
 
 ```bash
 # uvを使用してパッケージをインストール
 uv pip install -r requirements.txt
 ```
 
-### 4. 環境変数の設定
+### 5. 環境変数の設定
 
 `.env`ファイルを作成し、以下の環境変数を設定：
 
@@ -107,16 +135,15 @@ cp env.example .env
 
 ```env
 # Databricks接続情報
-DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+DATABRICKS_HOST=your-workspace.cloud.databricks.com
 DATABRICKS_TOKEN=your-databricks-token
-DATABRICKS_SERVER_HOSTNAME=your-server-hostname
 DATABRICKS_WAREHOUSE_ID=your-warehouse-id
 
 # RAGエンドポイント
 RAG_ENDPOINT=https://your-workspace.cloud.databricks.com/serving-endpoints/YOUR_RAG_ENDPOINT_NAME/invocations
 ```
 
-### 5. データベースの準備
+### 6. データベースの準備
 
 Unity Catalogに以下のテーブルを作成：
 
@@ -142,26 +169,15 @@ CREATE TABLE hiroshi.ai_demo_hub.demos (
 
 > 📝 **詳細な手順**: [Create Table.ipynb](Create%20Table.ipynb)を参照
 
-### 6. アプリケーションの起動
+### 7. アプリケーションの起動
 
 #### 開発環境での起動
 
 ```bash
-python app.py
+DATABRICKS_TOKEN=YOUR_TOKEN RAG_ENDPOINT=https://YOUR_HOST/serving-endpoints/YOUR_ENDPOINT_NAME/invocations DATABRICKS_WAREHOUSE_ID=YOUR_DW_ID DATABRICKS_HOST=YOUR_HOST python app.py
 ```
 
-#### 本番環境での起動（推奨）
-
-```bash
-# 環境変数チェック付きで起動
-python run_app.py
-
-# または、シェルスクリプトを使用
-chmod +x start_app.sh
-./start_app.sh
-```
-
-### 7. アクセス
+### 8. アクセス
 
 ブラウザで http://localhost:7860 にアクセスしてアプリケーションを利用できます。
 
