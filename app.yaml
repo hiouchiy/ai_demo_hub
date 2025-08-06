@@ -1,12 +1,6 @@
 command: ["python", "app.py"]
 env:
-  - name: 'DATABRICKS_TOKEN'
-    value: 'YOUR_DATABRICKS_TOKEN'
   - name: 'RAG_ENDPOINT'
-    value: 'YOUR_RAG_ENDPOINT'
+    value: 'https://YOUR_DATABRICKS_HOST/serving-endpoints/YOUR_RAG_NAME/invocations'
   - name: 'DATABRICKS_WAREHOUSE_ID'
-    value: 'YOUR_DATABRICKS_WAREHOUSE_ID'
-  - name: 'DATABRICKS_SERVER_HOSTNAME'
-    value: 'YOUR_DATABRICKS_SERVER_HOSTNAME' 
-  - name: 'DATABRICKS_HOST'
-    value: 'YOUR_DATABRICKS_HOST' 
+    valueFrom: "sql_warehouse"
