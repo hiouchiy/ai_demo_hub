@@ -211,7 +211,6 @@ DATABRICKS_TOKEN=YOUR_TOKEN RAG_ENDPOINT=https://YOUR_HOST/serving-endpoints/YOU
 |--------|------|------|
 | `DATABRICKS_HOST` | ✅ | DatabricksワークスペースのURL |
 | `DATABRICKS_TOKEN` | ✅ | Personal Access Token |
-| `DATABRICKS_SERVER_HOSTNAME` | ✅ | SQLウェアハウスのホスト名 |
 | `DATABRICKS_WAREHOUSE_ID` | ✅ | SQLウェアハウスのID |
 | `RAG_ENDPOINT` | ✅ | セマンティック検索用RAGエンドポイント |
 
