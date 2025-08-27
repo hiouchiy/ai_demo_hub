@@ -2025,8 +2025,140 @@ def chat_with_rag(message: str, history: List[Dict]):
 # Create Gradio interface
 def create_interface():
     """Create the main Gradio interface"""
+        # Custom CSS for dark mode support
+    custom_css = """
+    /* Dark mode styles for demo details */
+    .dark .gr-html {
+        background-color: var(--background-fill-secondary) !important;
+        color: var(--body-text-color) !important;
+    }
     
-    with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft()) as demo:
+    .dark .gr-html p,
+    .dark .gr-html h1,
+    .dark .gr-html h2,
+    .dark .gr-html h3,
+    .dark .gr-html h4,
+    .dark .gr-html h5,
+    .dark .gr-html h6,
+    .dark .gr-html div,
+    .dark .gr-html span,
+    .dark .gr-html td,
+    .dark .gr-html th,
+    .dark .gr-html li,
+    .dark .gr-html strong,
+    .dark .gr-html em {
+        color: var(--body-text-color) !important;
+    }
+    
+    .dark .gr-html a {
+        color: var(--link-text-color) !important;
+    }
+    
+    .dark .gr-html table {
+        border-color: var(--border-color-primary) !important;
+        background-color: var(--background-fill-secondary) !important;
+    }
+    
+    .dark .gr-html th {
+        background-color: var(--background-fill-primary) !important;
+        border-color: var(--border-color-primary) !important;
+    }
+    
+    .dark .gr-html td {
+        border-color: var(--border-color-primary) !important;
+    }
+    
+    .dark .gr-html pre,
+    .dark .gr-html code {
+        background-color: var(--background-fill-primary) !important;
+        color: var(--body-text-color) !important;
+        border-color: var(--border-color-primary) !important;
+    }
+    
+    .dark .gr-html blockquote {
+        background-color: var(--background-fill-primary) !important;
+        border-left-color: var(--border-color-accent) !important;
+        color: var(--body-text-color) !important;
+    }
+    
+    /* Ensure HTML content respects dark mode */
+    .dark .gr-html {
+        filter: none !important;
+    }
+    
+    /* Fix for white background in demo details */
+    .dark [data-testid="HTML"] {
+        background-color: transparent !important;
+    }
+    
+    .dark [data-testid="HTML"] > div {
+        background-color: transparent !important;
+    }
+    
+    /* Demo details content styling */
+    .demo-details-content {
+        background-color: var(--background-fill-secondary);
+        border: 1px solid var(--border-color-primary);
+        color: var(--body-text-color);
+    }
+    
+    .dark .demo-details-content {
+        background-color: var(--background-fill-secondary) !important;
+        border: 1px solid var(--border-color-primary) !important;
+        color: var(--body-text-color) !important;
+    }
+    
+    /* Additional dark mode support for inline elements */
+    .dark .demo-details-content * {
+        color: inherit !important;
+    }
+    
+    .dark .demo-details-content a {
+        color: var(--link-text-color) !important;
+    }
+    
+    .dark .demo-details-content code {
+        background-color: var(--background-fill-primary) !important;
+        color: var(--body-text-color) !important;
+    }
+    
+    .dark .demo-details-content pre {
+        background-color: var(--background-fill-primary) !important;
+        border: 1px solid var(--border-color-primary) !important;
+    }
+    
+    .dark .demo-details-content table {
+        background-color: var(--background-fill-secondary) !important;
+        border-color: var(--border-color-primary) !important;
+    }
+    
+    .dark .demo-details-content th,
+    .dark .demo-details-content td {
+        border-color: var(--border-color-primary) !important;
+        background-color: transparent !important;
+    }
+    
+    .dark .demo-details-content th {
+        background-color: var(--background-fill-primary) !important;
+    }
+    
+    /* Specific targeting for demo details component */
+    #demo-details {
+        background-color: transparent !important;
+    }
+    
+    .dark #demo-details {
+        background-color: transparent !important;
+    }
+    
+    .dark #demo-details .demo-details-content {
+        background-color: var(--background-fill-secondary) !important;
+        border: 1px solid var(--border-color-primary) !important;
+    }
+    """
+
+    with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft(), css=custom_css) as demo:
+    
         # Language state
         language_state = gr.State(value="ja")
         # User email state for greeting updates
