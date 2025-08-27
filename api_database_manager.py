@@ -104,16 +104,20 @@ class APIBasedDatabaseManager:
             print(f"Connection test failed: {e}")
             return False
     
-    def get_demos(self, page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC") -> Tuple[List[Dict], int]:
+    def get_demos(self, page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC", items_per_page: int = 10) -> Tuple[List[Dict], int]:
         """Get paginated demo list with sorting"""
         try:
-            ITEMS_PER_PAGE = 10
-            
             # Validate inputs
             if page is None or page < 1:
                 page = 1
             
-            offset = (page - 1) * ITEMS_PER_PAGE
+            # Validate items_per_page
+            if items_per_page is None or items_per_page < 1:
+                items_per_page = 10
+            elif items_per_page > 50:  # MAX_ITEMS_PER_PAGE
+                items_per_page = 50
+            
+            offset = (page - 1) * items_per_page
             
             # Get total count
             count_query = "SELECT COUNT(*) as total FROM hiroshi.ai_demo_hub.demos"
@@ -138,7 +142,7 @@ class APIBasedDatabaseManager:
                    demo_url, repo_url, products, confidentiality, remarks
             FROM hiroshi.ai_demo_hub.demos
             ORDER BY {sort_column} {sort_order}
-            LIMIT {ITEMS_PER_PAGE} OFFSET {offset}
+            LIMIT {items_per_page} OFFSET {offset}
             """
             
             results = self.execute_query_api(data_query)
