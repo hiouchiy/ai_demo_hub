@@ -2025,7 +2025,8 @@ def chat_with_rag(message: str, history: List[Dict]):
 # Create Gradio interface
 def create_interface():
     """Create the main Gradio interface"""
-        # Custom CSS for dark mode support
+    
+    # Custom CSS for dark mode support
     custom_css = """
     /* Dark mode styles for demo details */
     .dark .gr-html {
