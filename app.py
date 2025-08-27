@@ -20,7 +20,9 @@ DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
 DATABRICKS_SERVER_HOSTNAME = os.getenv("DATABRICKS_HOST")
 DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
-ITEMS_PER_PAGE = 10
+# Default items per page (can be overridden by user)
+DEFAULT_ITEMS_PER_PAGE = 10
+MAX_ITEMS_PER_PAGE = 50
 JST = pytz.timezone('Asia/Tokyo')
 
 # Translation dictionary for multilingual support
@@ -655,14 +657,20 @@ class DatabaseManager:
             cursor.close()
             connection.close()
     
-    def get_demos(self, page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC") -> Tuple[List[Dict], int]:
+    def get_demos(self, page: int = 1, sort_column: str = "created_at", sort_order: str = "ASC", items_per_page: int = DEFAULT_ITEMS_PER_PAGE) -> Tuple[List[Dict], int]:
         """Get paginated demo list with sorting"""
         try:
             # Validate and sanitize inputs
             if page is None or page < 1:
                 page = 1
             
-            offset = (page - 1) * ITEMS_PER_PAGE
+            # Validate items_per_page
+            if items_per_page is None or items_per_page < 1:
+                items_per_page = DEFAULT_ITEMS_PER_PAGE
+            elif items_per_page > MAX_ITEMS_PER_PAGE:
+                items_per_page = MAX_ITEMS_PER_PAGE
+            
+            offset = (page - 1) * items_per_page
             
             # Get total count
             count_query = "SELECT COUNT(*) as total FROM hiroshi.ai_demo_hub.demos"
@@ -682,7 +690,7 @@ class DatabaseManager:
                    demo_url, repo_url, products, confidentiality, remarks
             FROM hiroshi.ai_demo_hub.demos
             ORDER BY {sort_column} {sort_order}
-            LIMIT {ITEMS_PER_PAGE} OFFSET {offset}
+            LIMIT {items_per_page} OFFSET {offset}
             """
             
             results = self.execute_query(query)
@@ -1339,7 +1347,7 @@ def get_button_states(current_page: int, total_pages: int) -> tuple:
     return prev_enabled, next_enabled
 
 # Tab 1: Demo List
-def load_demo_list(page: int = 1, language: str = "ja", request: gr.Request = None):
+def load_demo_list(page: int = 1, language: str = "ja", items_per_page: int = DEFAULT_ITEMS_PER_PAGE, request: gr.Request = None):
     """Load demo list with pagination and sorting"""
     try:
         # Validate inputs with proper type checking
@@ -1347,13 +1355,23 @@ def load_demo_list(page: int = 1, language: str = "ja", request: gr.Request = No
             page = 1
         else:
             page = int(page)
+        
+        # Validate items_per_page
+        if items_per_page is None or not isinstance(items_per_page, (int, float)):
+            items_per_page = DEFAULT_ITEMS_PER_PAGE
+        else:
+            items_per_page = int(items_per_page)
+            if items_per_page < 1:
+                items_per_page = DEFAULT_ITEMS_PER_PAGE
+            elif items_per_page > MAX_ITEMS_PER_PAGE:
+                items_per_page = MAX_ITEMS_PER_PAGE
             
         # Get user token and create database manager
         user_token = get_user_access_token(request) if request else None
         user_db_manager = APIBasedDatabaseManager(user_token)
         
         # Use default sorting by created_at DESC (newest first)
-        demos, total_count = user_db_manager.get_demos(page, "created_at", "DESC")
+        demos, total_count = user_db_manager.get_demos(page, "created_at", "DESC", items_per_page)
         
         # Format data for display
         formatted_demos = []
@@ -1431,8 +1449,8 @@ def load_demo_list(page: int = 1, language: str = "ja", request: gr.Request = No
         
         # Calculate pagination info - ensure proper type conversion
         total_count = int(total_count) if total_count is not None else 0
-        total_pages = max(1, (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
-        page_info = f"Page {page} of {total_pages} (Total: {total_count} demos)"
+        total_pages = max(1, (total_count + items_per_page - 1) // items_per_page)
+        page_info = f"Page {page} of {total_pages} (Total: {total_count} demos, {items_per_page} per page)"
         
         # Calculate button states
         prev_enabled, next_enabled = get_button_states(page, total_pages)
@@ -1509,7 +1527,7 @@ def show_demo_all_info_by_click(evt: gr.SelectData):
         if demo_full and demo_full.get('all_info_md'):
             # Convert markdown to HTML for display
             html_content = markdown.markdown(demo_full['all_info_md'])
-            formatted_html = f'<div class="demo-details-content" style="padding: 20px; border-radius: 8px; max-height: 600px; overflow-y: auto;">{html_content}</div>'
+            formatted_html = f'<div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; max-height: 600px; overflow-y: auto;">{html_content}</div>'
             
             # Cache the result
             last_displayed_demo_id = demo_id
@@ -2008,139 +2026,7 @@ def chat_with_rag(message: str, history: List[Dict]):
 def create_interface():
     """Create the main Gradio interface"""
     
-    # Custom CSS for dark mode support
-    custom_css = """
-    /* Dark mode styles for demo details */
-    .dark .gr-html {
-        background-color: var(--background-fill-secondary) !important;
-        color: var(--body-text-color) !important;
-    }
-    
-    .dark .gr-html p,
-    .dark .gr-html h1,
-    .dark .gr-html h2,
-    .dark .gr-html h3,
-    .dark .gr-html h4,
-    .dark .gr-html h5,
-    .dark .gr-html h6,
-    .dark .gr-html div,
-    .dark .gr-html span,
-    .dark .gr-html td,
-    .dark .gr-html th,
-    .dark .gr-html li,
-    .dark .gr-html strong,
-    .dark .gr-html em {
-        color: var(--body-text-color) !important;
-    }
-    
-    .dark .gr-html a {
-        color: var(--link-text-color) !important;
-    }
-    
-    .dark .gr-html table {
-        border-color: var(--border-color-primary) !important;
-        background-color: var(--background-fill-secondary) !important;
-    }
-    
-    .dark .gr-html th {
-        background-color: var(--background-fill-primary) !important;
-        border-color: var(--border-color-primary) !important;
-    }
-    
-    .dark .gr-html td {
-        border-color: var(--border-color-primary) !important;
-    }
-    
-    .dark .gr-html pre,
-    .dark .gr-html code {
-        background-color: var(--background-fill-primary) !important;
-        color: var(--body-text-color) !important;
-        border-color: var(--border-color-primary) !important;
-    }
-    
-    .dark .gr-html blockquote {
-        background-color: var(--background-fill-primary) !important;
-        border-left-color: var(--border-color-accent) !important;
-        color: var(--body-text-color) !important;
-    }
-    
-    /* Ensure HTML content respects dark mode */
-    .dark .gr-html {
-        filter: none !important;
-    }
-    
-    /* Fix for white background in demo details */
-    .dark [data-testid="HTML"] {
-        background-color: transparent !important;
-    }
-    
-    .dark [data-testid="HTML"] > div {
-        background-color: transparent !important;
-    }
-    
-    /* Demo details content styling */
-    .demo-details-content {
-        background-color: var(--background-fill-secondary);
-        border: 1px solid var(--border-color-primary);
-        color: var(--body-text-color);
-    }
-    
-    .dark .demo-details-content {
-        background-color: var(--background-fill-secondary) !important;
-        border: 1px solid var(--border-color-primary) !important;
-        color: var(--body-text-color) !important;
-    }
-    
-    /* Additional dark mode support for inline elements */
-    .dark .demo-details-content * {
-        color: inherit !important;
-    }
-    
-    .dark .demo-details-content a {
-        color: var(--link-text-color) !important;
-    }
-    
-    .dark .demo-details-content code {
-        background-color: var(--background-fill-primary) !important;
-        color: var(--body-text-color) !important;
-    }
-    
-    .dark .demo-details-content pre {
-        background-color: var(--background-fill-primary) !important;
-        border: 1px solid var(--border-color-primary) !important;
-    }
-    
-    .dark .demo-details-content table {
-        background-color: var(--background-fill-secondary) !important;
-        border-color: var(--border-color-primary) !important;
-    }
-    
-    .dark .demo-details-content th,
-    .dark .demo-details-content td {
-        border-color: var(--border-color-primary) !important;
-        background-color: transparent !important;
-    }
-    
-    .dark .demo-details-content th {
-        background-color: var(--background-fill-primary) !important;
-    }
-    
-    /* Specific targeting for demo details component */
-    #demo-details {
-        background-color: transparent !important;
-    }
-    
-    .dark #demo-details {
-        background-color: transparent !important;
-    }
-    
-    .dark #demo-details .demo-details-content {
-        background-color: var(--background-fill-secondary) !important;
-        border: 1px solid var(--border-color-primary) !important;
-    }
-    """
-    
-    with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft(), css=custom_css) as demo:
+    with gr.Blocks(title="AI Demo Hub", theme=gr.themes.Soft()) as demo:
         # Language state
         language_state = gr.State(value="ja")
         # User email state for greeting updates
@@ -2170,10 +2056,14 @@ def create_interface():
                 
                 with gr.Row():
                     gr.HTML("")  # Left spacer to push content to the right
-                    with gr.Column(scale=1, min_width=200):
+                    with gr.Column(scale=1, min_width=400):
                         with gr.Row():
-                            page_input = gr.Number(label="ページ", value=1, precision=0, minimum=1, container=False, scale=1)
-                            refresh_btn = gr.Button("🔄 最新情報に更新", variant="primary", scale=1)
+                            with gr.Column(scale=1):
+                                page_input = gr.Number(label="ページ番号", value=1, precision=0, minimum=1, container=True, scale=1)
+                            with gr.Column(scale=1):
+                                items_per_page_input = gr.Number(label="1ページあたりの表示数", value=DEFAULT_ITEMS_PER_PAGE, precision=0, minimum=1, maximum=MAX_ITEMS_PER_PAGE, container=True, scale=1)
+                            with gr.Column(scale=1):
+                                refresh_btn = gr.Button("🔄 最新情報に更新", variant="primary", scale=1)
                 
                 # Pagination controls
                 with gr.Row():
@@ -2190,46 +2080,53 @@ def create_interface():
                     interactive=False
                 )
                 
-                demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>", elem_id="demo-details")
+                demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
                 
                 # Event handlers
-                def refresh_demo_list(page, request: gr.Request):
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page, "ja", request)
+                def refresh_demo_list(page, items_per_page, request: gr.Request):
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page, "ja", items_per_page, request)
                     return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 def initial_load_demo_list(request: gr.Request):
                     """Initial load function that works with demo.load"""
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(1, "ja", request)
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(1, "ja", DEFAULT_ITEMS_PER_PAGE, request)
                     return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 refresh_btn.click(
                     refresh_demo_list,
-                    inputs=[page_input],
+                    inputs=[page_input, items_per_page_input],
                     outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 # Previous page button
-                def go_previous_page(current_page, total_pages, request: gr.Request):
+                def go_previous_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_previous_page(current_page)
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", request)
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
                     return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 prev_btn.click(
                     go_previous_page,
-                    inputs=[current_page_state, total_pages_state],
+                    inputs=[current_page_state, total_pages_state, items_per_page_input],
                     outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 # Next page button
-                def go_next_page(current_page, total_pages, request: gr.Request):
+                def go_next_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_next_page(current_page, total_pages)
-                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", request)
+                    df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
                     return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
                 
                 next_btn.click(
                     go_next_page,
-                    inputs=[current_page_state, total_pages_state],
+                    inputs=[current_page_state, total_pages_state, items_per_page_input],
                     outputs=[page_input, demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
+                )
+                
+                # Auto-refresh when items per page changes
+                items_per_page_input.change(
+                    refresh_demo_list,
+                    inputs=[page_input, items_per_page_input],
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
                 )
                 
                 demo_table.select(
