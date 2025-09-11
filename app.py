@@ -23,7 +23,22 @@ RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
 # Default items per page (can be overridden by user)
 DEFAULT_ITEMS_PER_PAGE = 10
 MAX_ITEMS_PER_PAGE = 50
+# Table height calculation constants
+TABLE_ROW_HEIGHT = 50  # Approximate height per row in pixels
+TABLE_HEADER_HEIGHT = 60  # Height for table header
 JST = pytz.timezone('Asia/Tokyo')
+
+def calculate_table_height(items_per_page: int) -> int:
+    """Calculate optimal table height based on items per page"""
+    if items_per_page is None or items_per_page < 1:
+        items_per_page = DEFAULT_ITEMS_PER_PAGE
+    elif items_per_page > MAX_ITEMS_PER_PAGE:
+        items_per_page = MAX_ITEMS_PER_PAGE
+    
+    # Calculate height: header + (rows * row_height)
+    calculated_height = TABLE_HEADER_HEIGHT + (items_per_page * TABLE_ROW_HEIGHT)
+    
+    return calculated_height
 
 # Translation dictionary for multilingual support
 TRANSLATIONS = {
@@ -2210,7 +2225,8 @@ def create_interface():
                 
                 demo_table = gr.DataFrame(
                     headers=["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"],
-                    interactive=False
+                    interactive=False,
+                    max_height=calculate_table_height(DEFAULT_ITEMS_PER_PAGE)
                 )
                 
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
@@ -2218,12 +2234,30 @@ def create_interface():
                 # Event handlers
                 def refresh_demo_list(page, items_per_page, request: gr.Request):
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page, "ja", items_per_page, request)
-                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 def initial_load_demo_list(request: gr.Request):
                     """Initial load function that works with demo.load"""
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(1, "ja", DEFAULT_ITEMS_PER_PAGE, request)
-                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate initial table height
+                    initial_height = calculate_table_height(DEFAULT_ITEMS_PER_PAGE)
+                    return (
+                        gr.update(value=df, max_height=initial_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 refresh_btn.click(
                     refresh_demo_list,
@@ -2235,7 +2269,17 @@ def create_interface():
                 def go_previous_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_previous_page(current_page)
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
-                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        new_page, 
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 prev_btn.click(
                     go_previous_page,
@@ -2247,7 +2291,17 @@ def create_interface():
                 def go_next_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_next_page(current_page, total_pages)
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
-                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        new_page, 
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 next_btn.click(
                     go_next_page,
@@ -2257,6 +2311,13 @@ def create_interface():
                 
                 # Auto-refresh when items per page changes
                 items_per_page_input.change(
+                    refresh_demo_list,
+                    inputs=[page_input, items_per_page_input],
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
+                )
+                
+                # Auto-refresh when page number changes
+                page_input.change(
                     refresh_demo_list,
                     inputs=[page_input, items_per_page_input],
                     outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
