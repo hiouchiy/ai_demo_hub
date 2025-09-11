@@ -1231,8 +1231,22 @@ def generate_all_info_md(data: Dict) -> str:
     description_md = data.get('description_md', '') or '詳細説明未設定'
     owner_emp_id = data.get('owner_emp_id', '') or '未設定'
     status = data.get('status', '') or '未設定'
-    demo_url = data.get('demo_url', '') or 'なし'
-    repo_url = data.get('repo_url', '') or 'なし'
+    
+    # Format URLs as Markdown links
+    demo_url_raw = data.get('demo_url', '') or ''
+    repo_url_raw = data.get('repo_url', '') or ''
+    
+    # Create Markdown links if URL exists, otherwise show 'なし'
+    if demo_url_raw:
+        demo_url = f'[{demo_url_raw}]({demo_url_raw})'
+    else:
+        demo_url = 'なし'
+        
+    if repo_url_raw:
+        repo_url = f'[{repo_url_raw}]({repo_url_raw})'
+    else:
+        repo_url = 'なし'
+    
     confidentiality = data.get('confidentiality', '') or '未設定'
     remarks = data.get('remarks', '') or 'なし'
     
@@ -1412,6 +1426,14 @@ def load_demo_list(page: int = 1, language: str = "ja", items_per_page: int = DE
                         products = [p.strip() for p in products.split(',') if p.strip()]
                 products_str = ", ".join(products) if products else ""
                 
+                # Format URLs as hyperlinks
+                demo_url = demo.get("demo_url") or ""
+                repo_url = demo.get("repo_url") or ""
+                
+                # Create hyperlink HTML with blue color and underline if URL exists
+                demo_url_html = f'<a href="{demo_url}" target="_blank" style="color: #0066cc; text-decoration: underline;">{demo_url}</a>' if demo_url else ""
+                repo_url_html = f'<a href="{repo_url}" target="_blank" style="color: #0066cc; text-decoration: underline;">{repo_url}</a>' if repo_url else ""
+                
                 formatted_demo = {
                     get_text("table_demo_id", language): demo_id,
                     get_text("table_title", language): demo.get("title") or "",
@@ -1420,8 +1442,8 @@ def load_demo_list(page: int = 1, language: str = "ja", items_per_page: int = DE
                     get_text("table_creator", language): demo.get("creator_emp_id") or "",
                     get_text("table_updated", language): format_datetime(demo.get("updated_at")),
                     get_text("table_status", language): demo.get("status") or "",
-                    get_text("table_demo_url", language): demo.get("demo_url") or "",
-                    get_text("table_repo_url", language): demo.get("repo_url") or "",
+                    get_text("table_demo_url", language): demo_url_html,
+                    get_text("table_repo_url", language): repo_url_html,
                     get_text("table_products", language): products_str,
                     get_text("table_confidentiality", language): demo.get("confidentiality") or "",
                     get_text("table_remarks", language): demo.get("remarks") or ""
@@ -2226,7 +2248,8 @@ def create_interface():
                 demo_table = gr.DataFrame(
                     headers=["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"],
                     interactive=False,
-                    max_height=calculate_table_height(DEFAULT_ITEMS_PER_PAGE)
+                    max_height=calculate_table_height(DEFAULT_ITEMS_PER_PAGE),
+                    datatype=["number", "str", "str", "str", "str", "str", "str", "html", "html", "str", "str", "str"]
                 )
                 
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")

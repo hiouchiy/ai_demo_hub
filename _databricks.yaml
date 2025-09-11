@@ -1,5 +1,5 @@
 bundle:
-  name: japan-ai-demo-hub-tcy-test
+  name: japan-ai-demo-hub
 
 targets:
   dev:
@@ -13,9 +13,9 @@ variables:
 
 resources:
   apps:
-    japan-ai-demo-hub-tcy-test:
-      name: japan-ai-demo-hub-tcy-test
-      source_code_path: /Workspace/Users/yusuke.tsuchiya@databricks.com/japan-ai-demo-hub-tcy-test
+    japan-ai-demo-hub:
+      name: japan-ai-demo-hub
+      source_code_path: /Workspace/Users/hiroshi.ouchiyama@databricks.com/japan-ai-demo-hub
       user_api_scopes:
         - sql
       resources:
