@@ -332,8 +332,22 @@ class APIBasedDatabaseManager:
         owner_emp_id = data.get('owner_emp_id', '') or '未設定'
         creator_emp_id = data.get('creator_emp_id', '') or '不明'
         status = data.get('status', '') or '未設定'
-        demo_url = data.get('demo_url', '') or 'なし'
-        repo_url = data.get('repo_url', '') or 'なし'
+    
+        # Format URLs as Markdown links
+        demo_url_raw = data.get('demo_url', '') or ''
+        repo_url_raw = data.get('repo_url', '') or ''
+        
+        # Create Markdown links if URL exists, otherwise show 'なし'
+        if demo_url_raw:
+            demo_url = f'[{demo_url_raw}]({demo_url_raw})'
+        else:
+            demo_url = 'なし'
+            
+        if repo_url_raw:
+            repo_url = f'[{repo_url_raw}]({repo_url_raw})'
+        else:
+            repo_url = 'なし'
+        
         confidentiality = data.get('confidentiality', '') or '未設定'
         remarks = data.get('remarks', '') or 'なし'
         

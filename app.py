@@ -23,7 +23,22 @@ RAG_ENDPOINT = os.getenv("RAG_ENDPOINT")
 # Default items per page (can be overridden by user)
 DEFAULT_ITEMS_PER_PAGE = 10
 MAX_ITEMS_PER_PAGE = 50
+# Table height calculation constants
+TABLE_ROW_HEIGHT = 50  # Approximate height per row in pixels
+TABLE_HEADER_HEIGHT = 60  # Height for table header
 JST = pytz.timezone('Asia/Tokyo')
+
+def calculate_table_height(items_per_page: int) -> int:
+    """Calculate optimal table height based on items per page"""
+    if items_per_page is None or items_per_page < 1:
+        items_per_page = DEFAULT_ITEMS_PER_PAGE
+    elif items_per_page > MAX_ITEMS_PER_PAGE:
+        items_per_page = MAX_ITEMS_PER_PAGE
+    
+    # Calculate height: header + (rows * row_height)
+    calculated_height = TABLE_HEADER_HEIGHT + (items_per_page * TABLE_ROW_HEIGHT)
+    
+    return calculated_height
 
 # Translation dictionary for multilingual support
 TRANSLATIONS = {
@@ -1216,8 +1231,22 @@ def generate_all_info_md(data: Dict) -> str:
     description_md = data.get('description_md', '') or '詳細説明未設定'
     owner_emp_id = data.get('owner_emp_id', '') or '未設定'
     status = data.get('status', '') or '未設定'
-    demo_url = data.get('demo_url', '') or 'なし'
-    repo_url = data.get('repo_url', '') or 'なし'
+    
+    # Format URLs as Markdown links
+    demo_url_raw = data.get('demo_url', '') or ''
+    repo_url_raw = data.get('repo_url', '') or ''
+    
+    # Create Markdown links if URL exists, otherwise show 'なし'
+    if demo_url_raw:
+        demo_url = f'[{demo_url_raw}]({demo_url_raw})'
+    else:
+        demo_url = 'なし'
+        
+    if repo_url_raw:
+        repo_url = f'[{repo_url_raw}]({repo_url_raw})'
+    else:
+        repo_url = 'なし'
+    
     confidentiality = data.get('confidentiality', '') or '未設定'
     remarks = data.get('remarks', '') or 'なし'
     
@@ -1397,6 +1426,14 @@ def load_demo_list(page: int = 1, language: str = "ja", items_per_page: int = DE
                         products = [p.strip() for p in products.split(',') if p.strip()]
                 products_str = ", ".join(products) if products else ""
                 
+                # Format URLs as hyperlinks
+                demo_url = demo.get("demo_url") or ""
+                repo_url = demo.get("repo_url") or ""
+                
+                # Create hyperlink HTML with blue color and underline if URL exists
+                demo_url_html = f'<a href="{demo_url}" target="_blank" style="color: #0066cc; text-decoration: underline;">{demo_url}</a>' if demo_url else ""
+                repo_url_html = f'<a href="{repo_url}" target="_blank" style="color: #0066cc; text-decoration: underline;">{repo_url}</a>' if repo_url else ""
+                
                 formatted_demo = {
                     get_text("table_demo_id", language): demo_id,
                     get_text("table_title", language): demo.get("title") or "",
@@ -1405,8 +1442,8 @@ def load_demo_list(page: int = 1, language: str = "ja", items_per_page: int = DE
                     get_text("table_creator", language): demo.get("creator_emp_id") or "",
                     get_text("table_updated", language): format_datetime(demo.get("updated_at")),
                     get_text("table_status", language): demo.get("status") or "",
-                    get_text("table_demo_url", language): demo.get("demo_url") or "",
-                    get_text("table_repo_url", language): demo.get("repo_url") or "",
+                    get_text("table_demo_url", language): demo_url_html,
+                    get_text("table_repo_url", language): repo_url_html,
                     get_text("table_products", language): products_str,
                     get_text("table_confidentiality", language): demo.get("confidentiality") or "",
                     get_text("table_remarks", language): demo.get("remarks") or ""
@@ -2210,7 +2247,9 @@ def create_interface():
                 
                 demo_table = gr.DataFrame(
                     headers=["デモID", "タイトル", "要約", "デモ作成者", "代表投稿者", "更新日時", "ステータス", "デモURL", "リポジトリURL", "利用製品", "機密性", "備考"],
-                    interactive=False
+                    interactive=False,
+                    max_height=calculate_table_height(DEFAULT_ITEMS_PER_PAGE),
+                    datatype=["number", "str", "str", "str", "str", "str", "str", "html", "html", "str", "str", "str"]
                 )
                 
                 demo_details = gr.HTML(label="デモ詳細", value="<p>テーブルの行をクリックすると詳細が表示されます。</p>")
@@ -2218,12 +2257,30 @@ def create_interface():
                 # Event handlers
                 def refresh_demo_list(page, items_per_page, request: gr.Request):
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(page, "ja", items_per_page, request)
-                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 def initial_load_demo_list(request: gr.Request):
                     """Initial load function that works with demo.load"""
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(1, "ja", DEFAULT_ITEMS_PER_PAGE, request)
-                    return df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate initial table height
+                    initial_height = calculate_table_height(DEFAULT_ITEMS_PER_PAGE)
+                    return (
+                        gr.update(value=df, max_height=initial_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 refresh_btn.click(
                     refresh_demo_list,
@@ -2235,7 +2292,17 @@ def create_interface():
                 def go_previous_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_previous_page(current_page)
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
-                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        new_page, 
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 prev_btn.click(
                     go_previous_page,
@@ -2247,7 +2314,17 @@ def create_interface():
                 def go_next_page(current_page, total_pages, items_per_page, request: gr.Request):
                     new_page = get_next_page(current_page, total_pages)
                     df, page_info, current_page, total_pages, prev_enabled, next_enabled = load_demo_list(new_page, "ja", items_per_page, request)
-                    return new_page, df, page_info, current_page, total_pages, gr.update(interactive=prev_enabled), gr.update(interactive=next_enabled)
+                    # Calculate new table height based on items_per_page
+                    new_height = calculate_table_height(items_per_page)
+                    return (
+                        new_page, 
+                        gr.update(value=df, max_height=new_height),  # Update both data and height
+                        page_info, 
+                        current_page, 
+                        total_pages, 
+                        gr.update(interactive=prev_enabled), 
+                        gr.update(interactive=next_enabled)
+                    )
                 
                 next_btn.click(
                     go_next_page,
@@ -2257,6 +2334,13 @@ def create_interface():
                 
                 # Auto-refresh when items per page changes
                 items_per_page_input.change(
+                    refresh_demo_list,
+                    inputs=[page_input, items_per_page_input],
+                    outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
+                )
+                
+                # Auto-refresh when page number changes
+                page_input.change(
                     refresh_demo_list,
                     inputs=[page_input, items_per_page_input],
                     outputs=[demo_table, page_info, current_page_state, total_pages_state, prev_btn, next_btn]
