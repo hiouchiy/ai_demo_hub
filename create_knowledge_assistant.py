@@ -2,186 +2,175 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install databricks-agents unitycatalog-ai[databricks] mlflow
-# MAGIC dbutils.library.restartPython()
+# MAGIC %md
+# MAGIC # Knowledge Assistant 作成ノートブック
+# MAGIC
+# MAGIC Vector Search Index を知識ソースとして、Agent Bricks Knowledge Assistant を
+# MAGIC REST API (`POST /api/2.0/knowledge-assistants`) で作成します。
+# MAGIC
+# MAGIC **前提条件:**
+# MAGIC - Vector Search Index が作成済み & ONLINE であること
+# MAGIC - エンベディングモデルが `databricks-gte-large-en` であること（KA の制約）
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "hiroshi", "カタログ名")
-dbutils.widgets.text("schema", "ai_demo_hub", "スキーマ名")
-dbutils.widgets.text("vs_endpoint", "one-env-shared-endpoint-1", "Vector Search エンドポイント名")
+dbutils.widgets.text("ka_name", "ai_demo_hub_assistant", "KA 名")
 dbutils.widgets.text("vs_index", "hiroshi.ai_demo_hub.demos_vs_index", "Vector Search インデックス名")
-dbutils.widgets.text("llm_endpoint", "databricks-claude-sonnet-4", "LLM エンドポイント名")
-dbutils.widgets.text("agent_name", "ai_demo_hub_knowledge_assistant", "エージェント名")
+dbutils.widgets.text("text_col", "all_info_md", "テキスト列")
+dbutils.widgets.text("doc_uri_col", "demo_url", "ドキュメント URI 列")
+dbutils.widgets.text("description", "社内 AI デモカタログのナレッジアシスタント。デモの検索、製品・技術に関する質問に回答します。", "KA の説明")
+dbutils.widgets.text("instructions", "あなたは社内 AI デモカタログのナレッジアシスタントです。ユーザーからの質問に対して、デモカタログを検索し、関連するデモ情報を分かりやすく日本語で回答してください。検索結果がある場合は、デモのタイトル、概要、利用製品、デモURLなどを整理して提示してください。", "KA への指示")
 
-catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
-vs_endpoint = dbutils.widgets.get("vs_endpoint")
+ka_name = dbutils.widgets.get("ka_name")
 vs_index = dbutils.widgets.get("vs_index")
-llm_endpoint = dbutils.widgets.get("llm_endpoint")
-agent_name = dbutils.widgets.get("agent_name")
-
-uc_function_name = f"{catalog}.{schema}.demos_retriever"
-registered_model_name = f"{catalog}.{schema}.{agent_name}"
+text_col = dbutils.widgets.get("text_col")
+doc_uri_col = dbutils.widgets.get("doc_uri_col")
+ka_description = dbutils.widgets.get("description")
+ka_instructions = dbutils.widgets.get("instructions")
 
 # COMMAND ----------
 
-import mlflow
+import requests
 from databricks.sdk import WorkspaceClient
 
-mlflow.set_registry_uri("databricks-uc")
 w = WorkspaceClient()
+host = w.config.host.rstrip("/")
+token = w.config.token
 
-# COMMAND ----------
-
-# Unity Catalog に Vector Search リトリーバー関数を作成
-from unitycatalog.ai.core.utils.function_processing_utils import generate_function_input_params_schema
-from databricks.sdk.service.catalog import FunctionInfo
-
-spark.sql(f"""
-CREATE OR REPLACE FUNCTION {uc_function_name}(query STRING COMMENT 'ユーザーの検索クエリ')
-RETURNS TABLE (
-  demo_id BIGINT,
-  title STRING,
-  summary STRING,
-  description_md STRING,
-  demo_url STRING,
-  repo_url STRING,
-  products ARRAY<STRING>,
-  status STRING,
-  all_info_md STRING,
-  score DOUBLE
-)
-COMMENT 'デモカタログからユーザーのクエリに関連するデモを検索します。製品名、技術、ユースケースなどのキーワードで検索できます。'
-RETURN
-  SELECT
-    demo_id,
-    title,
-    summary,
-    description_md,
-    demo_url,
-    repo_url,
-    products,
-    status,
-    all_info_md,
-    score
-  FROM VECTOR_SEARCH(
-    index => '{vs_index}',
-    query => query,
-    num_results => 5
-  )
-""")
-
-print(f"UC function created: {uc_function_name}")
-
-# COMMAND ----------
-
-# エージェントの定義
-from databricks_agents import ChatAgent, ChatAgentMessage, ChatAgentResponse, ChatAgentChunk
-from unitycatalog.ai.core.databricks import DatabricksFunctionClient
-import json
-
-uc_client = DatabricksFunctionClient()
-
-SYSTEM_PROMPT = """あなたは社内 AI デモカタログのナレッジアシスタントです。
-ユーザーからの質問に対して、デモカタログを検索し、関連するデモ情報を分かりやすく日本語で回答してください。
-
-回答のルール:
-- 検索結果がある場合は、デモのタイトル、概要、利用製品、デモURLなどを整理して提示してください
-- 検索結果がない場合は、その旨を伝え、別のキーワードでの検索を提案してください
-- 複数のデモが見つかった場合は、関連度の高い順に紹介してください
-- 回答は日本語で行ってください"""
-
-class DemoKnowledgeAssistant(ChatAgent):
-    def __init__(self):
-        self.llm_endpoint = llm_endpoint
-        self.uc_function_name = uc_function_name
-
-    def predict(self, messages, context=None):
-        user_query = messages[-1]["content"]
-
-        # Vector Search で関連デモを検索
-        try:
-            result = uc_client.execute_function(
-                self.uc_function_name,
-                parameters={"query": user_query}
-            )
-            search_results = result.to_json() if hasattr(result, 'to_json') else str(result)
-        except Exception as e:
-            search_results = f"検索エラー: {str(e)}"
-
-        # LLM に検索結果を含めて回答を生成
-        augmented_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-        ]
-        # 既存の会話履歴を追加
-        for msg in messages[:-1]:
-            augmented_messages.append({"role": msg["role"], "content": msg["content"]})
-
-        # ユーザーの質問と検索結果を結合
-        augmented_messages.append({
-            "role": "user",
-            "content": f"""ユーザーの質問: {user_query}
-
-以下はデモカタログの検索結果です:
-{search_results}
-
-上記の検索結果をもとに、ユーザーの質問に回答してください。"""
-        })
-
-        response = w.serving_endpoints.query(
-            name=self.llm_endpoint,
-            messages=augmented_messages,
-        )
-
-        assistant_message = response.choices[0].message.content
-
-        return ChatAgentResponse(
-            messages=[
-                ChatAgentMessage(role="assistant", content=assistant_message)
-            ]
-        )
-
-agent = DemoKnowledgeAssistant()
-
-# COMMAND ----------
-
-# エージェントのテスト
-test_result = agent.predict(
-    messages=[{"role": "user", "content": "RAGに関するデモはありますか？"}]
-)
-print(test_result.messages[0].content)
-
-# COMMAND ----------
-
-# MLflow にエージェントをログ & Unity Catalog に登録
-mlflow.set_experiment(f"/Users/{w.current_user.me().user_name}/{agent_name}")
-
-input_example = {
-    "messages": [{"role": "user", "content": "機械学習に関するデモを教えてください"}]
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {token}",
 }
 
-with mlflow.start_run():
-    model_info = mlflow.pyfunc.log_model(
-        artifact_path="agent",
-        python_model=agent,
-        input_example=input_example,
-        registered_model_name=registered_model_name,
-    )
+# COMMAND ----------
 
-print(f"Model registered: {registered_model_name}")
-print(f"Model URI: {model_info.model_uri}")
+# MAGIC %md
+# MAGIC ## 1. 既存の KA を検索（同名があれば更新、なければ新規作成）
 
 # COMMAND ----------
 
-# Agent をサービングエンドポイントとしてデプロイ
-from databricks.agents import deploy
-
-deployment = deploy(
-    model_name=registered_model_name,
-    model_version=1,
+# 同名の KA を検索
+resp = requests.get(
+    f"{host}/api/2.0/tiles",
+    headers=headers,
+    params={"tile_types": "KA"},
 )
+resp.raise_for_status()
 
-print(f"Agent deployed!")
-print(f"Endpoint name: {deployment.endpoint_name}")
-print(f"Endpoint URL: {deployment.endpoint_url}")
+existing_tile_id = None
+for tile in resp.json().get("tiles", []):
+    if tile.get("name") == ka_name:
+        existing_tile_id = tile["tile_id"]
+        print(f"既存の KA を検出: tile_id={existing_tile_id}")
+        break
+
+if not existing_tile_id:
+    print("既存の KA なし。新規作成します。")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Knowledge Assistant を作成 / 更新
+
+# COMMAND ----------
+
+payload = {
+    "name": ka_name,
+    "description": ka_description,
+    "instructions": ka_instructions,
+    "knowledge_sources": [
+        {
+            "index_source": {
+                "name": f"source_{ka_name}",
+                "type": "index",
+                "description": ka_description,
+                "index": {
+                    "name": vs_index,
+                    "text_col": text_col,
+                    "doc_uri_col": doc_uri_col,
+                },
+            }
+        }
+    ],
+}
+
+if existing_tile_id:
+    # 更新
+    resp = requests.patch(
+        f"{host}/api/2.0/knowledge-assistants/{existing_tile_id}",
+        headers=headers,
+        json=payload,
+    )
+else:
+    # 新規作成
+    resp = requests.post(
+        f"{host}/api/2.0/knowledge-assistants",
+        headers=headers,
+        json=payload,
+    )
+
+resp.raise_for_status()
+result = resp.json()
+
+ka_info = result.get("knowledge_assistant", result)
+tile_id = ka_info.get("id") or ka_info.get("tile", {}).get("tile_id")
+endpoint_name = ka_info.get("endpoint_name") or ka_info.get("tile", {}).get("serving_endpoint_name")
+
+print(f"KA 名: {ka_name}")
+print(f"Tile ID: {tile_id}")
+print(f"エンドポイント名: {endpoint_name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. エンドポイントの起動を待機
+
+# COMMAND ----------
+
+import time
+
+for i in range(30):
+    resp = requests.get(
+        f"{host}/api/2.0/knowledge-assistants/{tile_id}",
+        headers=headers,
+    )
+    resp.raise_for_status()
+    ka_status = resp.json()
+    tile = ka_status.get("knowledge_assistant", {}).get("tile", {})
+    ep_status = tile.get("serving_endpoint_status", "UNKNOWN")
+
+    if ep_status == "ONLINE":
+        print(f"エンドポイント {endpoint_name} は ONLINE です。")
+        break
+
+    print(f"[{i+1}/30] ステータス: {ep_status} ... 30秒後に再確認")
+    time.sleep(30)
+else:
+    print("タイムアウト: エンドポイントが ONLINE になりませんでした。手動で確認してください。")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4. テストクエリ
+
+# COMMAND ----------
+
+test_resp = requests.post(
+    f"{host}/serving-endpoints/{endpoint_name}/invocations",
+    headers=headers,
+    json={
+        "input": [{"role": "user", "content": "RAGに関するデモはありますか？"}]
+    },
+)
+test_resp.raise_for_status()
+test_result = test_resp.json()
+
+# 回答テキストを抽出
+texts = []
+for output_item in test_result.get("output", []):
+    for content_item in output_item.get("content", []):
+        if "text" in content_item:
+            texts.append(content_item["text"])
+
+print("Q: RAGに関するデモはありますか？")
+print(f"A: {''.join(texts)}")
